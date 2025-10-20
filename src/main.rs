@@ -1,4 +1,4 @@
-use bevy::{color::palettes::css::SILVER, input::mouse::{AccumulatedMouseScroll, MouseMotion, MouseWheel}, prelude::*};
+use bevy::{color::palettes::css::SILVER, input::mouse::{MouseMotion, MouseWheel}, prelude::*};
 
 #[derive(Component)]
 enum ExampleViewports {
@@ -10,6 +10,32 @@ enum ExampleViewports {
     _OrthographicStretched,
     _OrthographicMoving,
     _OrthographicControl,
+}
+
+// Velocity of an entity in world space
+#[derive(Component, Default, Debug)]
+struct Velocity {
+    linear: Vec3,
+}
+
+// Acceleration (optional, for forces)
+#[derive(Component, Default, Debug)]
+struct Acceleration {
+    _linear: Vec3,
+}
+
+// A simple collider (AABB)
+#[derive(Component, Debug)]
+struct Collider {
+    half_extents: Vec3, // half-size in x, y, z
+    is_static: bool,
+}
+
+// Global physics settings (gravity, timestep, etc.)
+#[derive(Resource)]
+struct PhysicsSettings {
+    gravity: Vec3,
+    damping: f32,
 }
 
 // Component marker for any entity that should rotate
@@ -46,11 +72,16 @@ fn main() {
             sensitivity: 0.002,
             zoom_speed: 5.0,
         })
+        // Insert physics settings
+        .insert_resource(PhysicsSettings {
+            gravity: Vec3::new(0.0, -9.81, 0.0),
+            damping: 0.98,
+        })
         .insert_resource(CameraOrientation::default())
         // Run this system once at startup
         .add_systems(Startup, setup)
         // Run this system every frame
-        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll))
+        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, apply_gravity, integrate_motion, floor_collision))
         // Begin the engine's main loop
         .run();
 }
@@ -86,17 +117,31 @@ fn setup(
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(50.0, 50.0).subdivisions(10))),
         MeshMaterial3d(materials.add(Color::from(SILVER))),
+        Collider {
+            half_extents: Vec3::new(10.0, 0.1, 10.0),
+            is_static: true,
+        }
     ));
 
+    let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
+
     // Cube: mesh + material + transform + custom component
-    for i in -2..=2 {
-        commands.spawn((
-            // Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-            Mesh3d(meshes.add(Cuboid::default())),
-            MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-            Transform::from_xyz(i as f32 * 0.0, 0.5, 0.0),
-            Rotates,
-        ));
+    for x in -1..2 {
+        for z in -1..2 {
+            commands.spawn((
+                // Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+                Transform::from_translation(Vec3::new(x as f32, 5.0, z as f32)),
+                Rotates,
+                Velocity::default(),
+                Collider {
+                    half_extents: Vec3::splat(0.25),
+                    is_static: false,
+                }
+            ));
+        }
+        
     }
 }
 
@@ -195,9 +240,53 @@ fn mouse_scroll(
     }
 }
 
-// Update system - rotates the cube each frame
-fn rotate_cube(mut query: Query<&mut Transform, With<Rotates>>, time: Res<Time>) {
-    for mut transform in &mut query {
-        transform.rotate_y(1.0 * time.delta_secs());
+fn apply_gravity(
+    settings: Res<PhysicsSettings>,
+    mut query: Query<(&mut Velocity, &Collider), Without<Acceleration>>,
+    time: Res<Time>,
+) {
+    for (mut vel, col) in &mut query {
+        if !col.is_static {
+            vel.linear += settings.gravity * time.delta_secs();
+            vel.linear *= settings.damping; // simple air friction
+        }
     }
 }
+
+fn integrate_motion(
+    mut query: Query<(&mut Transform, &Velocity, &Collider)>,
+    time: Res<Time>,
+) {
+    for (mut transform, vel, col) in &mut query {
+        if !col.is_static {
+            transform.translation += vel.linear * time.delta_secs();
+        }
+    }
+}
+
+fn floor_collision(
+    mut query: Query<(&mut Transform, &mut Velocity, &Collider)>
+) {
+    for (mut transform, mut vel, col) in &mut query {
+        if col.is_static {
+            continue;
+        }
+
+        let bottom = transform.translation.y - col.half_extents.y;
+        let floor_y = 0.0; // hardcoded ground level
+
+        if bottom < floor_y {
+            // snap to floor
+            transform.translation.y = floor_y + col.half_extents.y;
+            // simple bounce (invert Y velocity)
+            vel.linear.y = 0.0;
+        }
+    }
+}
+
+// Update system - rotates the cube each frame
+// fn rotate_cube(mut query: Query<&mut Transform, With<Rotates>>, time: Res<Time>) {
+//     for mut transform in &mut query {
+//         transform.rotate_y(1.0 * time.delta_secs());
+//     }
+// }
