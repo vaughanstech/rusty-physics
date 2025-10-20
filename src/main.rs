@@ -81,7 +81,7 @@ fn main() {
         // Run this system once at startup
         .add_systems(Startup, setup)
         // Run this system every frame
-        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, apply_gravity, integrate_motion, floor_collision))
+        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, apply_gravity, integrate_motion, floor_collision, dynamic_collisions))
         // Begin the engine's main loop
         .run();
 }
@@ -126,23 +126,47 @@ fn setup(
     let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
 
     // Cube: mesh + material + transform + custom component
-    for x in -1..2 {
-        for z in -1..2 {
-            commands.spawn((
-                // Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-                Mesh3d(cube.clone()),
-                MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-                Transform::from_translation(Vec3::new(x as f32, 5.0, z as f32)),
-                Rotates,
-                Velocity::default(),
-                Collider {
-                    half_extents: Vec3::splat(0.25),
-                    is_static: false,
-                }
-            ));
-        }
+    // for x in -1..2 {
+    //     for z in -1..2 {
+    //         commands.spawn((
+    //             // Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+    //             Mesh3d(cube.clone()),
+    //             MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+    //             Transform::from_translation(Vec3::new(x as f32, 5.0, z as f32)),
+    //             Rotates,
+    //             Velocity::default(),
+    //             Collider {
+    //                 half_extents: Vec3::splat(0.25),
+    //                 is_static: false,
+    //             }
+    //         ));
+    //     }
         
-    }
+    // }
+
+    commands.spawn((
+        Mesh3d(cube.clone()),
+        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+        Transform::from_translation(Vec3::new(0.0, 0.25, 0.0)),
+        Rotates,
+        Velocity::default(),
+        Collider {
+            half_extents: Vec3::splat(0.25),
+            is_static: false,
+        },
+    ));
+
+    commands.spawn((
+        Mesh3d(cube.clone()),
+        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+        Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
+        Rotates,
+        Velocity::default(),
+        Collider {
+            half_extents: Vec3::splat(0.5),
+            is_static: false,
+        },
+    ));
 }
 
 // Handles keyboard input for movement
@@ -280,6 +304,85 @@ fn floor_collision(
             transform.translation.y = floor_y + col.half_extents.y;
             // simple bounce (invert Y velocity)
             vel.linear.y = 0.0;
+        }
+    }
+}
+
+// An axis-aligned bounding box (AABB) is a box aligned to the world's X/Y/Z axes
+// We need to check for intersection between two AABBs
+fn aabb_intersect(
+    pos_a: Vec3,
+    half_a: Vec3,
+    pos_b: Vec3,
+    half_b: Vec3
+) -> Option<Vec3> {
+    // Calculate overlap on each axis
+    let delta = pos_b - pos_a;
+    let overlap_x = half_a.x + half_b.x - delta.x.abs();
+    let overlap_y = half_a.y + half_b.y - delta.y.abs();
+    let overlap_z = half_a.z + half_b.z - delta.z.abs();
+
+    // if all overlaps > 0, we have a collision
+    if overlap_x > 0.0 && overlap_y > 0.0 && overlap_z > 0.0 {
+        // return smallest overlap axis as the collision normal * penetration depth
+        let min_overlap = overlap_x.min(overlap_y.min(overlap_z));
+
+        // figure out along which axis the collision occured
+        if min_overlap == overlap_x {
+            Some(Vec3::new(overlap_x.copysign(-delta.x), 0.0, 0.0))
+        } else if min_overlap == overlap_y {
+            Some(Vec3::new(0.0, overlap_y.copysign(-delta.y), 0.0))
+        } else {
+            Some(Vec3::new(0.0, 0.0, overlap_z.copysign(-delta.z)))
+        }
+    } else {
+        None
+    }
+}
+
+// Check all pairs of entities and resolve collisions
+// This is unoptimized, use spatial partitioning (broad-phase) for optimization
+fn dynamic_collisions(
+    mut query: Query<(Entity, &mut Transform, &mut Velocity, &Collider)>
+) {
+    // Collect entities to avoid borrow conflicts
+    let entities: Vec<_> = query.iter_mut().map(|(e, _, _, _)| e).collect();
+
+    for i in 0..entities.len() {
+        for j in (i + 1)..entities.len() {
+            if let Ok([mut a, mut b]) = query.get_many_mut([entities[i], entities[j]]) {
+                // skip static objects
+                if a.3.is_static && b.3.is_static {
+                    continue;
+                }
+
+                // Extract positions and half extents
+                let pos_a = a.1.translation;
+                let pos_b = b.1.translation;
+                let half_a = a.3.half_extents;
+                let half_b = b.3.half_extents;
+
+                // check intersection
+                if let Some(penetration) = aabb_intersect(pos_a, half_a, pos_b, half_b) {
+                    // Separate objects based on their static/dynamic state
+                    if a.3.is_static {
+                        b.1.translation += penetration;
+                        b.2.linear = Vec3::ZERO;
+                    } else if b.3.is_static {
+                        a.1.translation -= penetration;
+                        a.2.linear = Vec3::ZERO;
+                    } else {
+                        // Both are dynamic, split the correction
+                        let correction = penetration * 0.5;
+                        a.1.translation -= correction;
+                        b.1.translation += correction;
+
+                        // Stop their motion (simple restitution)
+                        a.2.linear = Vec3::ZERO;
+                        b.2.linear = Vec3::ZERO;
+                    }
+                }
+            }
         }
     }
 }
