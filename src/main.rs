@@ -29,6 +29,7 @@ struct Acceleration {
 struct Collider {
     half_extents: Vec3, // half-size in x, y, z
     is_static: bool,
+    restitution: f32, // bounciness factor (0 = no bounce, 1 = perfect bounce)
 }
 
 // Global physics settings (gravity, timestep, etc.)
@@ -81,7 +82,7 @@ fn main() {
         // Run this system once at startup
         .add_systems(Startup, setup)
         // Run this system every frame
-        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, apply_gravity, integrate_motion, floor_collision, dynamic_collisions))
+        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, apply_gravity, integrate_motion, floor_collision, dynamic_collisions, draw_debug_colliders))
         // Begin the engine's main loop
         .run();
 }
@@ -120,6 +121,7 @@ fn setup(
         Collider {
             half_extents: Vec3::new(10.0, 0.1, 10.0),
             is_static: true,
+            restitution: 0.0,
         }
     ));
 
@@ -147,24 +149,26 @@ fn setup(
     commands.spawn((
         Mesh3d(cube.clone()),
         MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-        Transform::from_translation(Vec3::new(0.0, 0.25, 0.0)),
+        Transform::from_translation(Vec3::new(0.0, 5.0, 0.0)),
         Rotates,
         Velocity::default(),
         Collider {
             half_extents: Vec3::splat(0.25),
             is_static: false,
+            restitution: 0.2,
         },
     ));
 
     commands.spawn((
         Mesh3d(cube.clone()),
         MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-        Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
+        Transform::from_translation(Vec3::new(0.0, 20.0, 0.0)),
         Rotates,
         Velocity::default(),
         Collider {
-            half_extents: Vec3::splat(0.5),
+            half_extents: Vec3::splat(0.25),
             is_static: false,
+            restitution: 0.2,
         },
     ));
 }
@@ -315,7 +319,7 @@ fn aabb_intersect(
     half_a: Vec3,
     pos_b: Vec3,
     half_b: Vec3
-) -> Option<Vec3> {
+) -> Option<(Vec3, f32)> {
     // Calculate overlap on each axis
     let delta = pos_b - pos_a;
     let overlap_x = half_a.x + half_b.x - delta.x.abs();
@@ -325,15 +329,12 @@ fn aabb_intersect(
     // if all overlaps > 0, we have a collision
     if overlap_x > 0.0 && overlap_y > 0.0 && overlap_z > 0.0 {
         // return smallest overlap axis as the collision normal * penetration depth
-        let min_overlap = overlap_x.min(overlap_y.min(overlap_z));
-
-        // figure out along which axis the collision occured
-        if min_overlap == overlap_x {
-            Some(Vec3::new(overlap_x.copysign(-delta.x), 0.0, 0.0))
-        } else if min_overlap == overlap_y {
-            Some(Vec3::new(0.0, overlap_y.copysign(-delta.y), 0.0))
+        if overlap_x < overlap_y && overlap_x < overlap_z {
+            Some((Vec3::new(delta.x.signum(), 0.0, 0.0), overlap_x))
+        } else if overlap_y < overlap_z {
+            Some((Vec3::new(0.0, delta.y.signum(), 0.0), overlap_y))
         } else {
-            Some(Vec3::new(0.0, 0.0, overlap_z.copysign(-delta.z)))
+            Some((Vec3::new(0.0, 0.0, delta.z.signum()), overlap_z))
         }
     } else {
         None
@@ -363,26 +364,99 @@ fn dynamic_collisions(
                 let half_b = b.3.half_extents;
 
                 // check intersection
-                if let Some(penetration) = aabb_intersect(pos_a, half_a, pos_b, half_b) {
+                if let Some((normal, depth)) = aabb_intersect(pos_a, half_a, pos_b, half_b) {
+                    // Compute relative velocity
+                    let rel_vel = b.2.linear - a.2.linear;
+                    let vel_along_normal = rel_vel.dot(normal);
+                    // Compute bounce impulse
+                    if vel_along_normal < 0.0 {
+                        let restitution = (a.3.restitution + b.3.restitution) * 1.0;
+                        let impulse_mag = -(1.0 + restitution) * vel_along_normal * 1.0;
+
+                        let impulse = normal * impulse_mag;
+
+                        // Apply impulse (change velocity)
+                        if !a.3.is_static {
+                            a.2.linear -= impulse;
+                        }
+                        if !b.3.is_static {
+                            b.2.linear += impulse;
+                        }
+                    }
+                    
+                    // Direction from A to B
+                    // adding bias to over-crrect slightly to ensure separation visually
+                    let bias = 0.001;
+                    let correction_strength = 0.5; // smaller = more "elastic" collisions
+                    let separation = normal * (depth + bias) * correction_strength;
+
                     // Separate objects based on their static/dynamic state
+                    // Separate along collision normal
                     if a.3.is_static {
-                        b.1.translation += penetration;
-                        b.2.linear = Vec3::ZERO;
+                        b.1.translation += separation;
                     } else if b.3.is_static {
-                        a.1.translation -= penetration;
-                        a.2.linear = Vec3::ZERO;
+                        a.1.translation -= separation;
                     } else {
                         // Both are dynamic, split the correction
-                        let correction = penetration * 0.5;
-                        a.1.translation -= correction;
-                        b.1.translation += correction;
+                        a.1.translation -= separation * 0.5;
+                        b.1.translation += separation * 0.5;
+                    }
 
-                        // Stop their motion (simple restitution)
+                    // Dampen small residual vertical velocity to prevent jitter
+                    if a.2.linear.length_squared() < 0.0001 {
                         a.2.linear = Vec3::ZERO;
+                    }
+                    if b.2.linear.length_squared() < 0.0001 {
                         b.2.linear = Vec3::ZERO;
                     }
                 }
             }
+        }
+    }
+}
+
+// Using debug rendering system to understand colliders on objects
+fn draw_debug_colliders(
+    mut gizmos: Gizmos,
+    query: Query<(&Transform, &Collider)>
+) {
+    for (transform, collider) in &query {
+        let center = transform.translation;
+        let half = collider.half_extents;
+
+        // Compute box corners (8 corners)
+        let corners = [
+            Vec3::new(-half.x, -half.y, -half.z),
+            Vec3::new(half.x, -half.y, -half.z),
+            Vec3::new(half.x, half.y, -half.z),
+            Vec3::new(-half.x, half.y, -half.z),
+            Vec3::new(-half.x, -half.y, half.z),
+            Vec3::new(half.x, -half.y, half.z),
+            Vec3::new(half.x, half.y, half.z),
+            Vec3::new(-half.x, half.y, half.z),
+        ];
+
+        // Transform corners to world space
+        let world_corners: Vec<Vec3> = corners
+            .iter()
+            .map(|c| transform.translation + *c)
+            .collect();
+
+        // Graw 12 edges of the box
+        let edges = [
+            (0, 1), (1, 2), (2, 3), (3, 0), // bottom
+            (4, 5), (5, 6), (6, 7), (7, 4), // top
+            (0, 4), (1, 5), (2, 6), (3, 7), // sides
+        ];
+
+        let color = if collider.is_static {
+            Color::srgb(0.3, 0.8, 1.0) // light blue for static
+        } else {
+            Color::srgb(1.0, 0.3, 0.3) // red for dynamic
+        };
+
+        for (a,b) in edges {
+            gizmos.line(world_corners[a], world_corners[b], color);
         }
     }
 }
