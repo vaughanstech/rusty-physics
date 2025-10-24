@@ -123,11 +123,36 @@ fn setup(
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
 
+    // ramp plane parameters
+    let slope_angle = -0.4; // radians (rotations around Z axis)
+    let slope_length = 20.0;
+    let slope_width = 10.0;
+    let ramp_origin = Vec3::new(0.0, 0.0, 0.0); // where ramp is centered in world
+
+    // compute ramp endpoints in world space
+    let rotation = Quat::from_rotation_z(slope_angle);
+    // let local_forward = Vec3::Y; // plane's local forward
+    // let slope_dir = rotation * local_forward; // world direction along slope
+    // let half_length_vec = slope_dir * (slope_length * 0.5);
+    let half_len = slope_length * 0.5;
+
+    // Compute the ramp's local-to-world transform
+    let ramp_transform = Transform {
+        translation: ramp_origin,
+        rotation,
+        ..default()
+    };
+    // Local bottom edge point (along -Z)
+    let local_bottom_edge = Vec3::new(half_len, 0.0, 0.0);
+
+    // Convert that local point to world space
+    let bottom_edge = ramp_transform.transform_point(local_bottom_edge);
+
     // Floor: Flat mesh that object should sit on
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(30.0, 30.0).subdivisions(10))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(slope_length, slope_width).subdivisions(10))),
         MeshMaterial3d(materials.add(Color::from(SILVER))),
-        Transform::from_rotation(Quat::from_rotation_z(-0.4)).with_translation(Vec3::new(0.0, -1.0, 0.0)),
+        ramp_transform,
         PlaneCollider {
             normal: Vec3::Y, // local up direction
             point: Vec3::ZERO, // local origin
@@ -135,16 +160,21 @@ fn setup(
         }
     ));
 
-    // commands.spawn((
-    //     Mesh3d(meshes.add(Plane3d::default().mesh().size(30.0, 30.0).subdivisions(10))),
-    //     MeshMaterial3d(materials.add(Color::from(SILVER))),
-    //     Transform::from_translation(Vec3::new(30.0, -6.0, 0.0)),
-    //     PlaneCollider {
-    //         normal: Vec3::Y, // local up direction
-    //         point: Vec3::ZERO, // local origin
-    //         restitution: 0.4,
-    //     }
-    // ));
+    // compute where to place flat plane
+    let flat_length = 20.0;
+    let flat_width = 20.0;
+    let flat_center = bottom_edge - Vec3::new(flat_length * 0.5 - flat_length, 0.0, 0.0);
+
+    commands.spawn((
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(flat_length, flat_width).subdivisions(10))),
+        MeshMaterial3d(materials.add(Color::from(SILVER))),
+        Transform::from_translation(flat_center),
+        PlaneCollider {
+            normal: Vec3::Y, // local up direction
+            point: Vec3::ZERO, // local origin
+            restitution: 0.4,
+        }
+    ));
 
     let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
 
@@ -171,7 +201,7 @@ fn setup(
     commands.spawn((
         Mesh3d(cube.clone()),
         MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-        Transform::from_translation(Vec3::new(-5.0, 15.0, 0.0)),
+        Transform::from_translation(Vec3::new(5.0, 5.0, 0.0)),
         Rotates,
         Velocity::default(),
         Collider {
@@ -477,46 +507,99 @@ fn cube_plane_collisions(
 // Using debug rendering system to understand colliders on objects
 fn draw_debug_colliders(
     mut gizmos: Gizmos,
-    query: Query<(&Transform, &Collider)>
+    query: Query<(&Transform, &Collider)>,
+    plane_query: Query<(&Transform, &PlaneCollider)>
 ) {
-    for (transform, collider) in &query {
-        let half = collider.half_extents;
+    // Draw planes
+    for (transform, plane) in &plane_query {
+        let world_normal = transform.rotation * plane.normal.normalize();
+        let world_point = transform.transform_point(plane.point);
+        gizmos.sphere(world_point, 0.1, Color::srgb(0.0, 0.3, 0.3));
+        gizmos.line(world_point, world_point + world_normal * 2.0, Color::srgb(1.0, 0.3, 0.3));
 
-        // Compute box corners (8 corners)
-        let corners = [
-            Vec3::new(-half.x, -half.y, -half.z),
-            Vec3::new(half.x, -half.y, -half.z),
-            Vec3::new(half.x, half.y, -half.z),
-            Vec3::new(-half.x, half.y, -half.z),
-            Vec3::new(-half.x, -half.y, half.z),
-            Vec3::new(half.x, -half.y, half.z),
-            Vec3::new(half.x, half.y, half.z),
-            Vec3::new(-half.x, half.y, half.z),
-        ];
+         // Draw a grid-like visualization for the plane’s surface
+        let plane_size = 10.0;
+        let right = transform.rotation * Vec3::X * plane_size;
+        let forward = transform.rotation * Vec3::Z * plane_size;
 
-        // Transform corners to world space
-        let world_corners: Vec<Vec3> = corners
-            .iter()
-            .map(|c| transform.translation + *c)
-            .collect();
+        // Draw 4 corner lines to represent the plane
+        let p1 = world_point + right + forward;
+        let p2 = world_point + right - forward;
+        let p3 = world_point - right - forward;
+        let p4 = world_point - right + forward;
 
-        // Graw 12 edges of the box
+        gizmos.line(p1, p2, Color::srgb(0.0, 1.0, 0.0));
+        gizmos.line(p2, p3, Color::srgb(0.0, 1.0, 0.0));
+        gizmos.line(p3, p4, Color::srgb(0.0, 1.0, 0.0));
+        gizmos.line(p4, p1, Color::srgb(0.0, 1.0, 0.0));
+    }
+
+    // Draw cubes
+    for (transform, cube) in &query {
+        let center = transform.translation;
+        let hx = cube.half_extents.x;
+        let hy = cube.half_extents.y;
+        let hz = cube.half_extents.z;
+
+        // Generate cube corners
+        let mut corners = vec![];
+        for &x in &[-hx, hx] {
+            for &y in &[-hy, hy] {
+                for &z in &[-hz, hz] {
+                    corners.push(transform.transform_point(Vec3::new(x, y, z)));
+                }
+            }
+        }
+
+        // Wireframe edges
         let edges = [
-            (0, 1), (1, 2), (2, 3), (3, 0), // bottom
-            (4, 5), (5, 6), (6, 7), (7, 4), // top
-            (0, 4), (1, 5), (2, 6), (3, 7), // sides
+            (0, 1), (0, 2), (0, 4),
+            (3, 1), (3, 2), (3, 7),
+            (5, 1), (5, 4), (5, 7),
+            (6, 2), (6, 4), (6, 7),
         ];
-
-        let color = if collider.is_static {
-            Color::srgb(0.3, 0.8, 1.0) // light blue for static
-        } else {
-            Color::srgb(1.0, 0.3, 0.3) // red for dynamic
-        };
-
-        for (a,b) in edges {
-            gizmos.line(world_corners[a], world_corners[b], color);
+        for &(a, b) in &edges {
+            gizmos.line(corners[a], corners[b], Color::srgb(0.3, 0.8, 1.0));
         }
     }
+    // for (transform, collider) in &query {
+    //     let half = collider.half_extents;
+
+    //     // Compute box corners (8 corners)
+    //     let corners = [
+    //         Vec3::new(-half.x, -half.y, -half.z),
+    //         Vec3::new(half.x, -half.y, -half.z),
+    //         Vec3::new(half.x, half.y, -half.z),
+    //         Vec3::new(-half.x, half.y, -half.z),
+    //         Vec3::new(-half.x, -half.y, half.z),
+    //         Vec3::new(half.x, -half.y, half.z),
+    //         Vec3::new(half.x, half.y, half.z),
+    //         Vec3::new(-half.x, half.y, half.z),
+    //     ];
+
+    //     // Transform corners to world space
+    //     let world_corners: Vec<Vec3> = corners
+    //         .iter()
+    //         .map(|c| transform.translation + *c)
+    //         .collect();
+
+    //     // Graw 12 edges of the box
+    //     let edges = [
+    //         (0, 1), (1, 2), (2, 3), (3, 0), // bottom
+    //         (4, 5), (5, 6), (6, 7), (7, 4), // top
+    //         (0, 4), (1, 5), (2, 6), (3, 7), // sides
+    //     ];
+
+    //     let color = if collider.is_static {
+    //         Color::srgb(0.3, 0.8, 1.0) // light blue for static
+    //     } else {
+    //         Color::srgb(1.0, 0.3, 0.3) // red for dynamic
+    //     };
+
+    //     for (a,b) in edges {
+    //         gizmos.line(world_corners[a], world_corners[b], color);
+    //     }
+    // }
 }
 
 // Update system - rotates the cube each frame
