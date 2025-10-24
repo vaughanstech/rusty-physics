@@ -32,6 +32,15 @@ struct Collider {
     restitution: f32, // bounciness factor (0 = no bounce, 1 = perfect bounce)
 }
 
+// Used for dynamic plane surfaces
+#[derive(Component)]
+pub struct PlaneCollider {
+    pub normal: Vec3,
+    pub point: Vec3,
+    pub restitution: f32,
+}
+
+
 // Global physics settings (gravity, timestep, etc.)
 #[derive(Resource)]
 struct PhysicsSettings {
@@ -82,7 +91,7 @@ fn main() {
         // Run this system once at startup
         .add_systems(Startup, setup)
         // Run this system every frame
-        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, apply_gravity, integrate_motion, floor_collision, dynamic_collisions, draw_debug_colliders))
+        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, apply_gravity, integrate_motion, floor_collision, dynamic_collisions, draw_debug_colliders, cube_plane_collisions))
         // Begin the engine's main loop
         .run();
 }
@@ -116,14 +125,26 @@ fn setup(
 
     // Floor: Flat mesh that object should sit on
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(50.0, 50.0).subdivisions(10))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(30.0, 30.0).subdivisions(10))),
         MeshMaterial3d(materials.add(Color::from(SILVER))),
-        Collider {
-            half_extents: Vec3::new(10.0, 0.1, 10.0),
-            is_static: true,
-            restitution: 0.0,
+        Transform::from_rotation(Quat::from_rotation_z(-0.4)).with_translation(Vec3::new(0.0, -1.0, 0.0)),
+        PlaneCollider {
+            normal: Vec3::Y, // local up direction
+            point: Vec3::ZERO, // local origin
+            restitution: 0.4,
         }
     ));
+
+    // commands.spawn((
+    //     Mesh3d(meshes.add(Plane3d::default().mesh().size(30.0, 30.0).subdivisions(10))),
+    //     MeshMaterial3d(materials.add(Color::from(SILVER))),
+    //     Transform::from_translation(Vec3::new(30.0, -6.0, 0.0)),
+    //     PlaneCollider {
+    //         normal: Vec3::Y, // local up direction
+    //         point: Vec3::ZERO, // local origin
+    //         restitution: 0.4,
+    //     }
+    // ));
 
     let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
 
@@ -134,12 +155,13 @@ fn setup(
     //             // Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
     //             Mesh3d(cube.clone()),
     //             MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-    //             Transform::from_translation(Vec3::new(x as f32, 5.0, z as f32)),
+    //             Transform::from_translation(Vec3::new(x as f32, 30.0, z as f32)),
     //             Rotates,
     //             Velocity::default(),
     //             Collider {
     //                 half_extents: Vec3::splat(0.25),
     //                 is_static: false,
+    //                 restitution: 0.2,
     //             }
     //         ));
     //     }
@@ -149,7 +171,7 @@ fn setup(
     commands.spawn((
         Mesh3d(cube.clone()),
         MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-        Transform::from_translation(Vec3::new(0.0, 5.0, 0.0)),
+        Transform::from_translation(Vec3::new(-5.0, 15.0, 0.0)),
         Rotates,
         Velocity::default(),
         Collider {
@@ -159,18 +181,18 @@ fn setup(
         },
     ));
 
-    commands.spawn((
-        Mesh3d(cube.clone()),
-        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-        Transform::from_translation(Vec3::new(0.0, 20.0, 0.0)),
-        Rotates,
-        Velocity::default(),
-        Collider {
-            half_extents: Vec3::splat(0.25),
-            is_static: false,
-            restitution: 0.2,
-        },
-    ));
+    // commands.spawn((
+    //     Mesh3d(cube.clone()),
+    //     MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+    //     Transform::from_translation(Vec3::new(0.0, 20.0, 0.0)),
+    //     Rotates,
+    //     Velocity::default(),
+    //     Collider {
+    //         half_extents: Vec3::splat(0.25),
+    //         is_static: false,
+    //         restitution: 0.2,
+    //     },
+    // ));
 }
 
 // Handles keyboard input for movement
@@ -415,13 +437,49 @@ fn dynamic_collisions(
     }
 }
 
+fn cube_plane_collisions(
+    mut cubes: Query<(&mut Transform, &mut Velocity, &Collider), Without<PlaneCollider>>,
+    planes: Query<(&Transform, &PlaneCollider)>,
+) {
+    for (mut cube_transform, mut velocity, cube_collider) in cubes.iter_mut() {
+        for (plane_transform, plane) in planes.iter() {
+            // Compute the world-space plane normal
+            let normal = (plane_transform.rotation * plane.normal).normalize();
+            let plane_point = plane_transform.translation;
+
+            // Distance from cube center to plane
+            let cube_center = cube_transform.translation;
+            let distance = normal.dot(cube_center - plane_point);
+
+            // Contact threshold: half cube height
+            if distance < cube_collider.half_extents.y {
+                // collision
+                let penetration = cube_collider.half_extents.y - distance;
+
+                // correct position
+                cube_transform.translation += normal * penetration;
+
+                // compute bounce
+                let vel_along_normal = velocity.linear.dot(normal);
+                if vel_along_normal < 0.0 {
+                    let restitution = (cube_collider.restitution + plane.restitution) * 0.5;
+                    velocity.linear -= normal * (1.0 + restitution) * vel_along_normal;
+                }
+
+                // add sideways friction
+                let tangent = (velocity.linear - normal * velocity.linear.dot(normal)) * 0.8;
+                velocity.linear = tangent;
+            }
+        }
+    }
+}
+
 // Using debug rendering system to understand colliders on objects
 fn draw_debug_colliders(
     mut gizmos: Gizmos,
     query: Query<(&Transform, &Collider)>
 ) {
     for (transform, collider) in &query {
-        let center = transform.translation;
         let half = collider.half_extents;
 
         // Compute box corners (8 corners)
