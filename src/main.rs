@@ -45,6 +45,7 @@ struct CameraOrientation {
 }
 
 
+
 fn main() {
     // Entry point of the application
     App::new()
@@ -61,10 +62,10 @@ fn main() {
         .add_plugins(RapierDebugRenderPlugin::default())
         .insert_resource(CameraOrientation::default())
         // Run this system once at startup
-        .add_systems(Startup, setup_camera)
+        .add_systems(Startup, (setup_camera, setup_lighting))
         .add_systems(Startup, setup)
         // Run this system every frame
-        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, restart_scene_on_key))
+        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, restart_scene_on_key, toggle_gravity))
         // Begin the engine's main loop
         .run();
 }
@@ -77,24 +78,6 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>, // resource for managing meshes
     mut materials: ResMut<Assets<StandardMaterial>>, // Resource for materials
 ) {
-    // let transform = Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y);
-    // // Camera: positioned above and behind the origin, looking down
-    // commands.spawn((
-    //     Camera3d::default(),
-    //     Camera::default(),
-    //     ExampleViewports::_PerspectiveMain,
-    //     transform,
-    //     FlyCamera,
-    // ));
-
-    // Light: bright white light above the cube
-    commands.spawn((
-        PointLight {
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(4.0, 8.0, 4.0),
-    ));
 
     // ramp plane parameters
     let slope_angle = -0.4; // radians (rotations around Z axis)
@@ -104,9 +87,6 @@ fn setup(
 
     // compute ramp endpoints in world space
     let rotation = Quat::from_rotation_z(slope_angle);
-    // let local_forward = Vec3::Y; // plane's local forward
-    // let slope_dir = rotation * local_forward; // world direction along slope
-    // let half_length_vec = slope_dir * (slope_length * 0.5);
     let half_len = slope_length * 0.5;
 
     // Compute the ramp's local-to-world transform
@@ -169,11 +149,11 @@ fn setup(
         Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
         Rotates,
         Velocity::default(),
-        RigidBody::Dynamic,
+        RigidBody::Fixed,
         Collider::cuboid(0.25, 0.25, 0.25),
     ))
     .insert(Restitution::coefficient(0.7))
-    .insert(GravityScale(0.38));
+    .insert(GravityScale(1.0));
 
     // commands.spawn((
     //     Mesh3d(cube.clone()),
@@ -203,13 +183,25 @@ fn setup_camera(
     ));
 }
 
+fn setup_lighting(
+    mut commands: Commands,
+) {
+    // Light: bright white light above the cube
+    commands.spawn((
+        PointLight {
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(4.0, 8.0, 4.0),
+    ));
+}
+
 fn restart_scene_on_key(
     keys: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
     query: Query<Entity, (With<RigidBody>, Without<Camera>, Without<Window>)>,
-    asset_server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    meshes: ResMut<Assets<Mesh>>,
+    materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if keys.just_pressed(KeyCode::KeyR) {
         // Despawn all entities except the camera
@@ -221,6 +213,20 @@ fn restart_scene_on_key(
         setup(commands, meshes, materials);
         
         info!("Scene Restarted!");
+    }
+}
+
+fn toggle_gravity(
+    mut query: Query<&mut RigidBody>,
+    keys: Res<ButtonInput<KeyCode>>,
+) {
+    if keys.just_pressed(KeyCode::KeyG) {
+        for mut rigid_body in query.iter_mut() {
+            *rigid_body = match *rigid_body {
+                RigidBody::Dynamic => RigidBody::Fixed,
+                _ => RigidBody::Dynamic
+            }
+        }
     }
 }
 
