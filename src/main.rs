@@ -404,50 +404,52 @@ fn interactive_menu(
                     let mut pos = transform.translation;
 
                     // identify cube
-                    ui.label(format!("Cube {}: ", id));
+                    ui.collapsing(format!("Cube {}: ", id), |ui| {
+                        // modify x position
+                        ui.horizontal(|ui| {
+                            ui.label(format!("X Position: {}", x));
+                            ui.add(egui::DragValue::new(&mut x).speed(0.1));
+                            if ui.button("-").clicked() {
+                                pos.x -= 1.0;
+                            }
+                            if ui.button("+").clicked() {
+                                pos.x += 1.0;
+                            }
+                        });
 
-                    // modify x position
-                    ui.horizontal(|ui| {
-                        ui.label(format!("X Position: {}", x));
-                        ui.add(egui::DragValue::new(&mut x).speed(0.1));
-                        if ui.button("-").clicked() {
-                            pos.x -= 1.0;
-                        }
-                        if ui.button("+").clicked() {
-                            pos.x += 1.0;
+                        // modify y position
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Y Position: {}", y));
+                            ui.add(egui::DragValue::new(&mut y).speed(0.1));
+                            if ui.button("-").clicked() {
+                                pos.y -= 1.0;
+                            }
+                            if ui.button("+").clicked() {
+                                pos.y += 1.0;
+                            }
+                        });
+
+                        // modify z position
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Y Position: {}", z));
+                            ui.add(egui::DragValue::new(&mut z).speed(0.1));
+                            if ui.button("-").clicked() {
+                                pos.z -= 1.0;
+                            }
+                            if ui.button("+").clicked() {
+                                pos.z += 1.0;
+                            }
+                        });
+
+                        transform.translation = pos;
+
+                        // delete cube
+                        if ui.button("Delete").clicked() {
+                                commands.entity(entity).despawn();
                         }
                     });
 
-                    // modify y position
-                    ui.horizontal(|ui| {
-                        ui.label(format!("X Position: {}", y));
-                        ui.add(egui::DragValue::new(&mut y).speed(0.1));
-                        if ui.button("-").clicked() {
-                            pos.y -= 1.0;
-                        }
-                        if ui.button("+").clicked() {
-                            pos.y += 1.0;
-                        }
-                    });
-
-                    // modify z position
-                    ui.horizontal(|ui| {
-                        ui.label(format!("X Position: {}", z));
-                        ui.add(egui::DragValue::new(&mut z).speed(0.1));
-                        if ui.button("-").clicked() {
-                            pos.z -= 1.0;
-                        }
-                        if ui.button("+").clicked() {
-                            pos.z += 1.0;
-                        }
-                    });
-
-                    transform.translation = pos;
-
-                    // delete cube
-                    if ui.button("Delete").clicked() {
-                            commands.entity(entity).despawn();
-                        }
+                    
                 }
             }
         });
