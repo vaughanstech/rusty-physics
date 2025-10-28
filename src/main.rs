@@ -1,4 +1,5 @@
 use bevy::{color::palettes::css::SILVER, input::mouse::{MouseMotion, MouseWheel}, prelude::*};
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_rapier3d::prelude::*;
 
 #[derive(Component)]
@@ -51,6 +52,7 @@ fn main() {
     App::new()
         // Load all default Bevy plugins (window, renderer, input, etc.)
         .add_plugins(DefaultPlugins)
+        .add_plugins(EguiPlugin::default())
         // Insert camera controller settings
         .insert_resource(CameraSettings {
             speed: 8.0,
@@ -64,6 +66,7 @@ fn main() {
         // Run this system once at startup
         .add_systems(Startup, (setup_camera, setup_lighting))
         .add_systems(Startup, setup)
+        .add_systems(EguiPrimaryContextPass, interactive_menu)
         // Run this system every frame
         .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, restart_scene_on_key, toggle_gravity))
         // Begin the engine's main loop
@@ -121,7 +124,7 @@ fn setup(
         Collider::cuboid(10.0, 0.0, 10.0)
     ));
 
-    let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
+    // let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
 
     // Cube: mesh + material + transform + custom component
     // for x in -1..2 {
@@ -143,17 +146,17 @@ fn setup(
         
     // }
 
-    commands.spawn((
-        Mesh3d(cube.clone()),
-        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-        Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
-        Rotates,
-        Velocity::default(),
-        RigidBody::Fixed,
-        Collider::cuboid(0.25, 0.25, 0.25),
-    ))
-    .insert(Restitution::coefficient(0.7))
-    .insert(GravityScale(1.0));
+    // commands.spawn((
+    //     Mesh3d(cube.clone()),
+    //     MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+    //     Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
+    //     Rotates,
+    //     Velocity::default(),
+    //     RigidBody::Fixed,
+    //     Collider::cuboid(0.25, 0.25, 0.25),
+    // ))
+    // .insert(Restitution::coefficient(0.7))
+    // .insert(GravityScale(1.0));
 
     // commands.spawn((
     //     Mesh3d(cube.clone()),
@@ -172,7 +175,7 @@ fn setup(
 fn setup_camera(
     mut commands: Commands,
 ) {
-    let transform = Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y);
+    let transform = Transform::from_xyz(0.0, 10.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y);
     // Camera: positioned above and behind the origin, looking down
     commands.spawn((
         Camera3d::default(),
@@ -323,6 +326,45 @@ fn mouse_scroll(
         let forward = transform.forward();
         transform.translation += forward * scroll_delta * settings.zoom_speed * time.delta_secs();
     }
+}
+
+fn interactive_menu(
+    mut contexts: EguiContexts,
+    mut commands: Commands, // used to spawn entities
+    mut meshes: ResMut<Assets<Mesh>>, // resource for managing meshes
+    mut materials: ResMut<Assets<StandardMaterial>>, // Resource for materials
+) -> Result {
+    let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
+    egui::Window::new("Rusty Physics Interactive Menu")
+        .resizable(true)
+        .vscroll(true)
+        .default_open(false)
+        .show(contexts.ctx_mut()?, |ui| {
+            ui.label("Label!");
+
+            if ui.button("Button!").clicked() {
+                println!("boom!")
+            }
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Spawn cube")
+            });
+            if ui.button("spawn").clicked() {
+                commands.spawn((
+                    Mesh3d(cube.clone()),
+                    MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+                    Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
+                    Rotates,
+                    Velocity::default(),
+                    RigidBody::Fixed,
+                    Collider::cuboid(0.25, 0.25, 0.25),
+                ))
+                .insert(Restitution::coefficient(0.7))
+                .insert(GravityScale(1.0));
+            }
+        });
+    Ok(())
 }
 
 // Update system - rotates the cube each frame
