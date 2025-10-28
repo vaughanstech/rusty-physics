@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use bevy::{color::palettes::css::SILVER, input::mouse::{MouseMotion, MouseWheel}, prelude::*};
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_rapier3d::prelude::*;
@@ -45,6 +47,19 @@ struct CameraOrientation {
     pitch: f32,
 }
 
+// Tag to identify individual Cubes that are spawned
+#[derive(Component)]
+#[allow(dead_code)]
+struct CubeId(u32);
+
+// Lookup table resource for quickly accessing Cubes that are spawned
+#[derive(Resource, Default)]
+struct CubeMap(HashMap<u32, Entity>);
+
+// Counter to keep track of the number of cube instances spawned
+#[derive(Resource, Default)]
+struct CubeCounter(u32);
+
 
 
 fn main() {
@@ -63,6 +78,8 @@ fn main() {
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .add_plugins(RapierDebugRenderPlugin::default())
         .insert_resource(CameraOrientation::default())
+        .insert_resource(CubeCounter::default())
+        .insert_resource(CubeMap::default())
         // Run this system once at startup
         .add_systems(Startup, (setup_camera, setup_lighting))
         .add_systems(Startup, setup)
@@ -333,6 +350,9 @@ fn interactive_menu(
     mut commands: Commands, // used to spawn entities
     mut meshes: ResMut<Assets<Mesh>>, // resource for managing meshes
     mut materials: ResMut<Assets<StandardMaterial>>, // Resource for materials
+    mut query: Query<&mut Transform>,
+    mut cube_counter: ResMut<CubeCounter>,
+    mut cube_map: ResMut<CubeMap>,
 ) -> Result {
     let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
     egui::Window::new("Rusty Physics Interactive Menu")
@@ -348,10 +368,13 @@ fn interactive_menu(
 
             ui.separator();
             ui.horizontal(|ui| {
-                ui.label("Spawn cube")
+                ui.label("Spawn Cubes")
             });
-            if ui.button("spawn").clicked() {
-                commands.spawn((
+            if ui.button("Spawn Cube").clicked() {
+                cube_counter.0 += 1;
+                let id = cube_counter.0;
+
+                let cube_entity = commands.spawn((
                     Mesh3d(cube.clone()),
                     MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
                     Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
@@ -359,9 +382,73 @@ fn interactive_menu(
                     Velocity::default(),
                     RigidBody::Fixed,
                     Collider::cuboid(0.25, 0.25, 0.25),
+                    CubeId(id),
                 ))
                 .insert(Restitution::coefficient(0.7))
-                .insert(GravityScale(1.0));
+                .insert(GravityScale(1.0))
+                .id();
+
+                cube_map.0.insert(id, cube_entity);
+            }
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Cube Entities")
+            });
+            for (id, &entity) in cube_map.0.iter() {
+                if let Ok(mut transform) = query.get_mut(entity) {
+                    // grab cube information
+                    let mut x = transform.translation.x;
+                    let mut y = transform.translation.y;
+                    let mut z = transform.translation.z;
+                    let mut pos = transform.translation;
+
+                    // identify cube
+                    ui.label(format!("Cube {}: ", id));
+
+                    // modify x position
+                    ui.horizontal(|ui| {
+                        ui.label(format!("X Position: {}", x));
+                        ui.add(egui::DragValue::new(&mut x).speed(0.1));
+                        if ui.button("-").clicked() {
+                            pos.x -= 1.0;
+                        }
+                        if ui.button("+").clicked() {
+                            pos.x += 1.0;
+                        }
+                    });
+
+                    // modify y position
+                    ui.horizontal(|ui| {
+                        ui.label(format!("X Position: {}", y));
+                        ui.add(egui::DragValue::new(&mut y).speed(0.1));
+                        if ui.button("-").clicked() {
+                            pos.y -= 1.0;
+                        }
+                        if ui.button("+").clicked() {
+                            pos.y += 1.0;
+                        }
+                    });
+
+                    // modify z position
+                    ui.horizontal(|ui| {
+                        ui.label(format!("X Position: {}", z));
+                        ui.add(egui::DragValue::new(&mut z).speed(0.1));
+                        if ui.button("-").clicked() {
+                            pos.z -= 1.0;
+                        }
+                        if ui.button("+").clicked() {
+                            pos.z += 1.0;
+                        }
+                    });
+
+                    transform.translation = pos;
+
+                    // delete cube
+                    if ui.button("Delete").clicked() {
+                            commands.entity(entity).despawn();
+                        }
+                }
             }
         });
     Ok(())
