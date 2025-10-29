@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bevy::{color::palettes::css::SILVER, input::mouse::{MouseMotion, MouseWheel}, prelude::*};
+use bevy::{asset::RenderAssetUsages, color::palettes::css::SILVER, input::mouse::{MouseMotion, MouseWheel}, prelude::*};
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_rapier3d::prelude::*;
 
@@ -60,7 +60,18 @@ struct CubeMap(HashMap<u32, Entity>);
 #[derive(Resource, Default)]
 struct CubeCounter(u32);
 
+// Tag to identify individual Pyramids that are spawned
+#[derive(Component)]
+#[allow(dead_code)]
+struct PyramidId(u32);
 
+// Lookup table resource for quickly accessing Pyramids that are spawned
+#[derive(Resource, Default)]
+struct PyramidMap(HashMap<u32, Entity>);
+
+// Counter to keep track of the number of pyramid instances spawned
+#[derive(Resource, Default)]
+struct PyramidCounter(u32);
 
 fn main() {
     // Entry point of the application
@@ -80,6 +91,8 @@ fn main() {
         .insert_resource(CameraOrientation::default())
         .insert_resource(CubeCounter::default())
         .insert_resource(CubeMap::default())
+        .insert_resource(PyramidCounter::default())
+        .insert_resource(PyramidMap::default())
         // Run this system once at startup
         .add_systems(Startup, (setup_camera, setup_lighting))
         .add_systems(Startup, setup)
@@ -345,8 +358,60 @@ fn mouse_scroll(
     }
 }
 
+// Generates a mesh for a square-based pyramid
+fn create_pyramid_mesh() -> Mesh {
+    let base_size = 1.0;
+    let height = 1.0;
+
+    // Define the vertices
+    let vertices = vec![
+        // Base vertices
+        ([base_size / 2.0, 0.0, base_size / 2.0], [0.0, -1.0, 0.0], [0.0, 0.0]),
+        ([-base_size / 2.0, 0.0, base_size / 2.0], [0.0, -1.0, 0.0], [1.0, 0.0]),
+        ([-base_size / 2.0, 0.0, -base_size / 2.0], [0.0, -1.0, 0.0], [1.0, 1.0]),
+        ([base_size / 2.0, 0.0, -base_size / 2.0], [0.0, -1.0, 0.0], [0.0, 1.0]),
+        // Apex vertex
+        ([0.0, height, 0.0], [0.0, 1.0, 0.0], [0.5, 0.5]),
+    ];
+
+    let mut mesh = Mesh::new(
+        bevy::render::mesh::PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+
+    // Positions
+    let positions: Vec<_> = vertices.iter().map(|(p, _, _)| *p).collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+
+    // Normals (for lighting)
+    let normals: Vec<_> = vertices.iter().map(|(_, n, _)| *n).collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+
+    // UV coordinates (for texture mapping)
+    let uvs: Vec<_> = vertices.iter().map(|(_, _, uv)| *uv).collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+
+    // Define the triangles using indices.
+    // The base is two triangles, and each side is one triangle.
+    let indices = vec![
+        // Base
+        0, 1, 2,
+        0, 2, 3,
+        // Sides
+        // This is a simplified example. For proper lighting, you would need
+        // separate vertices for each face to have correct normals.
+        0, 3, 4,
+        3, 2, 4,
+        2, 1, 4,
+        1, 0, 4,
+    ];
+    mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
+
+    mesh
+}
+
 /* Todo:
-- set gravity scale during runtime
+- set gravity scale during runtime ✅
 - support for different shapes (triangle, circle)
 - selectable entities
 - draggable entities
@@ -362,9 +427,12 @@ fn interactive_menu(
     mut query: Query<&mut Transform>,
     mut cube_counter: ResMut<CubeCounter>,
     mut cube_map: ResMut<CubeMap>,
+    mut pyramid_counter: ResMut<PyramidCounter>,
+    mut pyramid_map: ResMut<PyramidMap>,
     mut grav_scale: Query<&mut GravityScale>,
 ) -> Result {
     let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
+    let pyramid = meshes.add(create_pyramid_mesh());
     egui::Window::new("Rusty Physics Interactive Menu")
         .resizable(true)
         .vscroll(true)
@@ -374,7 +442,12 @@ fn interactive_menu(
 
             if ui.button("Button!").clicked() {
                 println!("boom!")
-            } 
+            }
+
+            // these should be buttons in the future
+            ui.label("Keybinds:");
+            ui.label("Restart Simulation: R");
+            ui.label("Enable Gravity: G");
 
             ui.separator();
             ui.horizontal(|ui| {
@@ -490,6 +563,131 @@ fn interactive_menu(
                     });
 
                     
+                }
+            }
+
+            ui.separator();
+            ui.label("Spawn Pyramids");
+            if ui.button("Spawn Pyramid").clicked() {
+                pyramid_counter.0 += 1;
+                let id = pyramid_counter.0;
+                let base_size = 1.0;
+                let height = 1.0;
+                let vertices = vec![
+                    Vec3::new(base_size / 2.0, 0.0, base_size / 2.0),
+                    Vec3::new(-base_size / 2.0, 0.0, base_size / 2.0),
+                    Vec3::new(-base_size / 2.0, 0.0, -base_size / 2.0),
+                    Vec3::new(base_size / 2.0, 0.0, -base_size / 2.0),
+                    Vec3::new(0.0, height, 0.0),
+                ];
+
+                let pyramid_collider = Collider::convex_hull(&vertices)
+                    .expect("Failed to create convex hull collider");
+
+                let pyramid_entity = commands.spawn((
+                    Mesh3d(pyramid.clone()),
+                    MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+                    Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
+                    Rotates,
+                    Velocity::default(),
+                    RigidBody::Fixed,
+                    pyramid_collider,
+                ))
+                .insert(Restitution::coefficient(0.7))
+                .insert(GravityScale(1.0))
+                .id();
+
+                pyramid_map.0.insert(id, pyramid_entity);
+            }
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Pyramid Entities")
+            });
+            for (id, &entity) in pyramid_map.0.iter() {
+                if let Ok(mut transform) = query.get_mut(entity) {
+                    // grab pyramid information
+                    let mut x = transform.translation.x;
+                    let mut y = transform.translation.y;
+                    let mut z = transform.translation.z;
+                    let mut pos = transform.translation;
+
+                    // identify pyramid
+                    ui.collapsing(format!("Pyramid {}: ", id), |ui| {
+                        ui.collapsing("Modify Pyramid Position", |ui| {
+                            // modify x position
+                            ui.horizontal(|ui| {
+                                ui.label(format!("X Position: {}", x));
+                                ui.add(egui::DragValue::new(&mut x).speed(0.1));
+                                if ui.button("-").clicked() {
+                                    pos.x -= 1.0;
+                                }
+                                if ui.button("+").clicked() {
+                                    pos.x += 1.0;
+                                }
+                            });
+
+                            // modify y position
+                            ui.horizontal(|ui| {
+                                ui.label(format!("Y Position: {}", y));
+                                ui.add(egui::DragValue::new(&mut y).speed(0.1));
+                                if ui.button("-").clicked() {
+                                    pos.y -= 1.0;
+                                }
+                                if ui.button("+").clicked() {
+                                    pos.y += 1.0;
+                                }
+                            });
+
+                            // modify z position
+                            ui.horizontal(|ui| {
+                                ui.label(format!("Y Position: {}", z));
+                                ui.add(egui::DragValue::new(&mut z).speed(0.1));
+                                if ui.button("-").clicked() {
+                                    pos.z -= 1.0;
+                                }
+                                if ui.button("+").clicked() {
+                                    pos.z += 1.0;
+                                }
+                            });
+
+                            // reset pyramid position (0.0, 10.0, 0.0)
+                            if ui.button("Reset Pyramid Position").clicked() {
+                                pos.x = 0.0;
+                                pos.y = 10.0;
+                                pos.z = 0.0;
+                            }
+
+                            transform.translation = pos;
+                        });
+
+                        ui.collapsing("Modify Pyramid Gravity", |ui| {
+                            for mut grav_scale in grav_scale.iter_mut() {
+                                ui.horizontal(|ui| {
+                                    ui.label("Current Gravity: ");
+                                    ui.add(egui::DragValue::new(&mut grav_scale.0).speed(0.001));
+                                });
+                                if ui.button("Mars Gravity").clicked() {
+                                    grav_scale.0 = 0.38;
+                                }
+                                if ui.button("Moon Gravity").clicked() {
+                                    grav_scale.0 = 0.165;
+                                }
+                                if ui.button("Venus Gravity").clicked() {
+                                    grav_scale.0 = 0.91;
+                                }
+                                if ui.button("Mercury Gravity").clicked() {
+                                    grav_scale.0 = 0.38;
+                                }
+                            }
+                        });
+
+                        // delete pyramid
+                        if ui.button("Delete").clicked() {
+                                commands.entity(entity).despawn();
+                        }
+                    });
+
                 }
             }
         });
