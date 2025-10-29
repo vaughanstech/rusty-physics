@@ -74,6 +74,19 @@ struct PyramidMap(HashMap<u32, Entity>);
 #[derive(Resource, Default)]
 struct PyramidCounter(u32);
 
+// Tag to identify individual Pyramids that are spawned
+#[derive(Component)]
+#[allow(dead_code)]
+struct SphereId(u32);
+
+// Lookup table resource for quickly accessing Pyramids that are spawned
+#[derive(Resource, Default)]
+struct SphereMap(HashMap<u32, Entity>);
+
+// Counter to keep track of the number of pyramid instances spawned
+#[derive(Resource, Default)]
+struct SphereCounter(u32);
+
 fn main() {
     // Entry point of the application
     App::new()
@@ -94,6 +107,8 @@ fn main() {
         .insert_resource(CubeMap::default())
         .insert_resource(PyramidCounter::default())
         .insert_resource(PyramidMap::default())
+        .insert_resource(SphereCounter::default())
+        .insert_resource(SphereMap::default())
         // Run this system once at startup
         .add_systems(Startup, (setup_camera, setup_lighting))
         .add_systems(Startup, setup)
@@ -458,10 +473,13 @@ fn interactive_menu(
     mut cube_map: ResMut<CubeMap>,
     mut pyramid_counter: ResMut<PyramidCounter>,
     mut pyramid_map: ResMut<PyramidMap>,
+    mut sphere_counter: ResMut<SphereCounter>,
+    mut sphere_map: ResMut<SphereMap>,
     mut grav_scale: Query<&mut GravityScale>,
 ) -> Result {
     let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
     let pyramid = meshes.add(create_pyramid_mesh());
+    let sphere = meshes.add(Sphere::new(0.5));
     egui::Window::new("Rusty Physics Interactive Menu")
         .resizable(true)
         .vscroll(true)
@@ -544,7 +562,7 @@ fn interactive_menu(
 
                             // modify z position
                             ui.horizontal(|ui| {
-                                ui.label(format!("Y Position: {}", z));
+                                ui.label(format!("Z Position: {}", z));
                                 ui.add(egui::DragValue::new(&mut z).speed(0.1));
                                 if ui.button("-").clicked() {
                                     pos.z -= 1.0;
@@ -668,7 +686,7 @@ fn interactive_menu(
 
                             // modify z position
                             ui.horizontal(|ui| {
-                                ui.label(format!("Y Position: {}", z));
+                                ui.label(format!("Z Position: {}", z));
                                 ui.add(egui::DragValue::new(&mut z).speed(0.1));
                                 if ui.button("-").clicked() {
                                     pos.z -= 1.0;
@@ -710,6 +728,117 @@ fn interactive_menu(
                         });
 
                         // delete pyramid
+                        if ui.button("Delete").clicked() {
+                                commands.entity(entity).despawn();
+                        }
+                    });
+                }
+            }
+
+            ui.separator();
+            ui.label("Spawn Spheres");
+            if ui.button("Spawn Sphere").clicked() {
+                sphere_counter.0 += 1;
+                let id = sphere_counter.0;
+
+                let sphere_entity = commands.spawn((
+                    Mesh3d(sphere.clone()),
+                    MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+                    Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
+                    Rotates,
+                    Velocity::default(),
+                    RigidBody::Fixed,
+                    Collider::ball(0.25),
+                    SphereId(id),
+                ))
+                .insert(Restitution::coefficient(0.7))
+                .insert(GravityScale(1.0))
+                .id();
+
+                sphere_map.0.insert(id, sphere_entity);
+            }
+
+            ui.separator();
+            ui.label("Sphere Entities");
+            for (id, &entity) in sphere_map.0.iter() {
+                if let Ok(mut transform) = query.get_mut(entity) {
+                    // grab sphere information
+                    let mut x = transform.translation.x;
+                    let mut y = transform.translation.y;
+                    let mut z = transform.translation.z;
+                    let mut pos = transform.translation;
+
+                    // identify sphere
+                    ui.collapsing(format!("Sphere {}: ", id), |ui| {
+                        ui.collapsing("Modify Sphere Position", |ui| {
+                            // modify x position
+                            ui.horizontal(|ui| {
+                                ui.label(format!("X Position: {}", x));
+                                ui.add(egui::DragValue::new(&mut x).speed(0.1));
+                                if ui.button("-").clicked() {
+                                    pos.x -= 1.0;
+                                }
+                                if ui.button("+").clicked() {
+                                    pos.x += 1.0;
+                                }
+                            });
+
+                            // modify y position
+                            ui.horizontal(|ui| {
+                                ui.label(format!("Y Position: {}", y));
+                                ui.add(egui::DragValue::new(&mut y).speed(0.1));
+                                if ui.button("-").clicked() {
+                                    pos.y -= 1.0;
+                                }
+                                if ui.button("+").clicked() {
+                                    pos.y += 1.0;
+                                }
+                            });
+
+                            // modify z position
+                            ui.horizontal(|ui| {
+                                ui.label(format!("Z Position: {}", z));
+                                ui.add(egui::DragValue::new(&mut z).speed(0.1));
+                                if ui.button("-").clicked() {
+                                    pos.z -= 1.0;
+                                }
+                                if ui.button("+").clicked() {
+                                    pos.z += 1.0;
+                                }
+                            });
+
+                            // reset sphere position (0.0, 10.0, 0.0)
+                            if ui.button("Reset Sphere Position").clicked() {
+                                pos.x = 0.0;
+                                pos.y = 10.0;
+                                pos.z = 0.0;
+                            }
+
+                            transform.translation = pos;
+                        });
+
+                        ui.collapsing("Modify Sphere Gravity", |ui| {
+                            for mut grav_scale in grav_scale.iter_mut() {
+                                ui.horizontal(|ui| {
+                                    ui.label("Current Gravity: ");
+                                    ui.add(egui::DragValue::new(&mut grav_scale.0).speed(0.001));
+                                });
+                                if ui.button("Mars Gravity").clicked() {
+                                    grav_scale.0 = 0.38;
+                                }
+                                if ui.button("Moon Gravity").clicked() {
+                                    grav_scale.0 = 0.165;
+                                }
+                                if ui.button("Venus Gravity").clicked() {
+                                    grav_scale.0 = 0.91;
+                                }
+                                if ui.button("Mercury Gravity").clicked() {
+                                    grav_scale.0 = 0.38;
+                                }
+                            }
+                        });
+
+                        // delete sphere
                         if ui.button("Delete").clicked() {
                                 commands.entity(entity).despawn();
                         }
