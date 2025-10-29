@@ -4302,6 +4302,7 @@ name = "rusty-physics"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_asset",
  "bevy_egui",
  "bevy_rapier3d",
 ]

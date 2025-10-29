@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use bevy::{asset::RenderAssetUsages, color::palettes::css::SILVER, input::mouse::{MouseMotion, MouseWheel}, prelude::*};
+use bevy::{ color::palettes::css::SILVER, input::mouse::{MouseMotion, MouseWheel}, prelude::*, render::mesh::{Indices, PrimitiveTopology}};
+use bevy_asset::RenderAssetUsages;
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_rapier3d::prelude::*;
 
@@ -363,49 +364,77 @@ fn create_pyramid_mesh() -> Mesh {
     let base_size = 1.0;
     let height = 1.0;
 
-    // Define the vertices
-    let vertices = vec![
-        // Base vertices
-        ([base_size / 2.0, 0.0, base_size / 2.0], [0.0, -1.0, 0.0], [0.0, 0.0]),
-        ([-base_size / 2.0, 0.0, base_size / 2.0], [0.0, -1.0, 0.0], [1.0, 0.0]),
-        ([-base_size / 2.0, 0.0, -base_size / 2.0], [0.0, -1.0, 0.0], [1.0, 1.0]),
-        ([base_size / 2.0, 0.0, -base_size / 2.0], [0.0, -1.0, 0.0], [0.0, 1.0]),
-        // Apex vertex
-        ([0.0, height, 0.0], [0.0, 1.0, 0.0], [0.5, 0.5]),
+    let half = base_size / 2.0;
+
+    // --- Base (facing down) ---
+    let base_vertices = vec![
+        ([ half, 0.0,  half], [0.0, -1.0, 0.0], [0.0, 0.0]), // 0
+        ([-half, 0.0,  half], [0.0, -1.0, 0.0], [1.0, 0.0]), // 1
+        ([-half, 0.0, -half], [0.0, -1.0, 0.0], [1.0, 1.0]), // 2
+        ([ half, 0.0, -half], [0.0, -1.0, 0.0], [0.0, 1.0]), // 3
     ];
 
+    // --- Sides ---
+    // We'll compute normals per face using cross products.
+    let apex = Vec3::new(0.0, height, 0.0);
+    let base_points = [
+        Vec3::new( half, 0.0,  half), // front-right
+        Vec3::new(-half, 0.0,  half), // front-left
+        Vec3::new(-half, 0.0, -half), // back-left
+        Vec3::new( half, 0.0, -half), // back-right
+    ];
+
+    // Helper to compute face normal
+    fn face_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
+        (b - a).cross(c - a).normalize()
+    }
+
+    let mut side_vertices = Vec::new();
+    for i in 0..4 {
+        let p0 = base_points[i];
+        let p1 = base_points[(i + 1) % 4];
+        let normal = face_normal(p0, p1, apex);
+        // Triangle vertices for this face
+        side_vertices.push((p0.to_array(), normal.to_array(), [0.0, 0.0]));
+        side_vertices.push((p1.to_array(), normal.to_array(), [1.0, 0.0]));
+        side_vertices.push((apex.to_array(), normal.to_array(), [0.5, 1.0]));
+    }
+
+    let mut vertices = Vec::new();
+    vertices.extend(base_vertices);
+    vertices.extend(side_vertices);
+
     let mut mesh = Mesh::new(
-        bevy::render::mesh::PrimitiveTopology::TriangleList,
+        PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
     );
 
-    // Positions
-    let positions: Vec<_> = vertices.iter().map(|(p, _, _)| *p).collect();
+    let positions: Vec<[f32; 3]> = vertices.iter().map(|(p, _, _)| *p).collect();
+    let normals: Vec<[f32; 3]> = vertices.iter().map(|(_, n, _)| *n).collect();
+    let uvs: Vec<[f32; 2]> = vertices.iter().map(|(_, _, uv)| *uv).collect();
+
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-
-    // Normals (for lighting)
-    let normals: Vec<_> = vertices.iter().map(|(_, n, _)| *n).collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-
-    // UV coordinates (for texture mapping)
-    let uvs: Vec<_> = vertices.iter().map(|(_, _, uv)| *uv).collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
 
-    // Define the triangles using indices.
-    // The base is two triangles, and each side is one triangle.
-    let indices = vec![
-        // Base
-        0, 1, 2,
-        0, 2, 3,
-        // Sides
-        // This is a simplified example. For proper lighting, you would need
-        // separate vertices for each face to have correct normals.
-        0, 3, 4,
-        3, 2, 4,
-        2, 1, 4,
-        1, 0, 4,
+    // --- Indices ---
+    // Base: two triangles
+    let mut indices = vec![
+        0, 2, 1,
+        0, 3, 2,
     ];
-    mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
+
+    // Sides: each face adds 3 vertices, so offset starts at 4
+    for i in 0..4 {
+        let base_index = 4 + i * 3;
+        indices.extend_from_slice(&[
+            base_index,
+            base_index + 1,
+            base_index + 2,
+        ]);
+    }
+
+    mesh.insert_indices(Indices::U32(indices));
 
     mesh
 }
@@ -561,8 +590,6 @@ fn interactive_menu(
                                 commands.entity(entity).despawn();
                         }
                     });
-
-                    
                 }
             }
 
@@ -687,7 +714,6 @@ fn interactive_menu(
                                 commands.entity(entity).despawn();
                         }
                     });
-
                 }
             }
         });
