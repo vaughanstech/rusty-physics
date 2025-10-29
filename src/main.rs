@@ -345,6 +345,15 @@ fn mouse_scroll(
     }
 }
 
+/* Todo:
+- set gravity scale during runtime
+- support for different shapes (triangle, circle)
+- selectable entities
+- draggable entities
+- default maps
+- impulse effect on entites
+- block structures
+*/
 fn interactive_menu(
     mut contexts: EguiContexts,
     mut commands: Commands, // used to spawn entities
@@ -353,6 +362,7 @@ fn interactive_menu(
     mut query: Query<&mut Transform>,
     mut cube_counter: ResMut<CubeCounter>,
     mut cube_map: ResMut<CubeMap>,
+    mut grav_scale: Query<&mut GravityScale>,
 ) -> Result {
     let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
     egui::Window::new("Rusty Physics Interactive Menu")
@@ -364,7 +374,7 @@ fn interactive_menu(
 
             if ui.button("Button!").clicked() {
                 println!("boom!")
-            }
+            } 
 
             ui.separator();
             ui.horizontal(|ui| {
@@ -405,43 +415,73 @@ fn interactive_menu(
 
                     // identify cube
                     ui.collapsing(format!("Cube {}: ", id), |ui| {
-                        // modify x position
-                        ui.horizontal(|ui| {
-                            ui.label(format!("X Position: {}", x));
-                            ui.add(egui::DragValue::new(&mut x).speed(0.1));
-                            if ui.button("-").clicked() {
-                                pos.x -= 1.0;
+                        ui.collapsing("Modify Cube Position", |ui| {
+                            // modify x position
+                            ui.horizontal(|ui| {
+                                ui.label(format!("X Position: {}", x));
+                                ui.add(egui::DragValue::new(&mut x).speed(0.1));
+                                if ui.button("-").clicked() {
+                                    pos.x -= 1.0;
+                                }
+                                if ui.button("+").clicked() {
+                                    pos.x += 1.0;
+                                }
+                            });
+
+                            // modify y position
+                            ui.horizontal(|ui| {
+                                ui.label(format!("Y Position: {}", y));
+                                ui.add(egui::DragValue::new(&mut y).speed(0.1));
+                                if ui.button("-").clicked() {
+                                    pos.y -= 1.0;
+                                }
+                                if ui.button("+").clicked() {
+                                    pos.y += 1.0;
+                                }
+                            });
+
+                            // modify z position
+                            ui.horizontal(|ui| {
+                                ui.label(format!("Y Position: {}", z));
+                                ui.add(egui::DragValue::new(&mut z).speed(0.1));
+                                if ui.button("-").clicked() {
+                                    pos.z -= 1.0;
+                                }
+                                if ui.button("+").clicked() {
+                                    pos.z += 1.0;
+                                }
+                            });
+
+                            // reset cube position (0.0, 10.0, 0.0)
+                            if ui.button("Reset Cube Position").clicked() {
+                                pos.x = 0.0;
+                                pos.y = 10.0;
+                                pos.z = 0.0;
                             }
-                            if ui.button("+").clicked() {
-                                pos.x += 1.0;
-                            }
+
+                            transform.translation = pos;
                         });
 
-                        // modify y position
-                        ui.horizontal(|ui| {
-                            ui.label(format!("Y Position: {}", y));
-                            ui.add(egui::DragValue::new(&mut y).speed(0.1));
-                            if ui.button("-").clicked() {
-                                pos.y -= 1.0;
-                            }
-                            if ui.button("+").clicked() {
-                                pos.y += 1.0;
-                            }
-                        });
-
-                        // modify z position
-                        ui.horizontal(|ui| {
-                            ui.label(format!("Y Position: {}", z));
-                            ui.add(egui::DragValue::new(&mut z).speed(0.1));
-                            if ui.button("-").clicked() {
-                                pos.z -= 1.0;
-                            }
-                            if ui.button("+").clicked() {
-                                pos.z += 1.0;
+                        ui.collapsing("Modify Cube Gravity", |ui| {
+                            for mut grav_scale in grav_scale.iter_mut() {
+                                ui.horizontal(|ui| {
+                                    ui.label("Current Gravity: ");
+                                    ui.add(egui::DragValue::new(&mut grav_scale.0).speed(0.001));
+                                });
+                                if ui.button("Mars Gravity").clicked() {
+                                    grav_scale.0 = 0.38;
+                                }
+                                if ui.button("Moon Gravity").clicked() {
+                                    grav_scale.0 = 0.165;
+                                }
+                                if ui.button("Venus Gravity").clicked() {
+                                    grav_scale.0 = 0.91;
+                                }
+                                if ui.button("Mercury Gravity").clicked() {
+                                    grav_scale.0 = 0.38;
+                                }
                             }
                         });
-
-                        transform.translation = pos;
 
                         // delete cube
                         if ui.button("Delete").clicked() {
