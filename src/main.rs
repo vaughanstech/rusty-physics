@@ -91,8 +91,7 @@ fn main() {
     // Entry point of the application
     App::new()
         // Load all default Bevy plugins (window, renderer, input, etc.)
-        .add_plugins(DefaultPlugins)
-        .add_plugins(EguiPlugin::default())
+        .add_plugins((DefaultPlugins, EguiPlugin::default(), MeshPickingPlugin))
         // Insert camera controller settings
         .insert_resource(CameraSettings {
             speed: 8.0,
@@ -101,7 +100,7 @@ fn main() {
         })
         // Insert physics settings
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
-        .add_plugins(RapierDebugRenderPlugin::default())
+        .add_plugins(RapierDebugRenderPlugin::default().disabled())
         .insert_resource(CameraOrientation::default())
         .insert_resource(CubeCounter::default())
         .insert_resource(CubeMap::default())
@@ -114,7 +113,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(EguiPrimaryContextPass, interactive_menu)
         // Run this system every frame
-        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, restart_scene_on_key, toggle_gravity))
+        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, restart_scene_on_key, toggle_gravity, toggle_debug_render))
         // Begin the engine's main loop
         .run();
 }
@@ -276,6 +275,16 @@ fn toggle_gravity(
                 _ => RigidBody::Dynamic
             }
         }
+    }
+}
+
+fn toggle_debug_render(
+    mut debug_render_context: ResMut<DebugRenderContext>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyQ) {
+        debug_render_context.enabled = !debug_render_context.enabled;
+        println!("Toggled debug render")
     }
 }
 
@@ -456,7 +465,7 @@ fn create_pyramid_mesh() -> Mesh {
 
 /* Todo:
 - set gravity scale during runtime ✅
-- support for different shapes (triangle, circle)
+- support for different shapes (triangle, circle) ✅
 - selectable entities
 - draggable entities
 - default maps
