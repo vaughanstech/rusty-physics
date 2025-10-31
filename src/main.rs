@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bevy::{ color::palettes::css::SILVER, input::mouse::{MouseMotion, MouseWheel}, prelude::*, render::mesh::{Indices, PrimitiveTopology}};
+use bevy::{ color::palettes::{css::SILVER, tailwind::{CYAN_300, PINK_100, RED_500}}, input::mouse::{MouseMotion, MouseWheel}, picking::pointer::PointerInteraction, prelude::*, render::mesh::{Indices, PrimitiveTopology}};
 use bevy_asset::RenderAssetUsages;
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_rapier3d::prelude::*;
@@ -87,6 +87,17 @@ struct SphereMap(HashMap<u32, Entity>);
 #[derive(Resource, Default)]
 struct SphereCounter(u32);
 
+// Toggle resource that tracks when the user triggers a Grag event on an entity
+#[derive(Resource)]
+struct DragState {
+    is_dragging: bool,
+}
+impl Default for DragState {
+    fn default() -> Self {
+        Self { is_dragging: true }
+    }
+}
+
 fn main() {
     // Entry point of the application
     App::new()
@@ -108,12 +119,13 @@ fn main() {
         .insert_resource(PyramidMap::default())
         .insert_resource(SphereCounter::default())
         .insert_resource(SphereMap::default())
+        .insert_resource(DragState::default())
         // Run this system once at startup
         .add_systems(Startup, (setup_camera, setup_lighting))
         .add_systems(Startup, setup)
         .add_systems(EguiPrimaryContextPass, interactive_menu)
         // Run this system every frame
-        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, restart_scene_on_key, toggle_gravity, toggle_debug_render))
+        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, restart_scene_on_key, toggle_gravity, toggle_debug_render, draw_mesh_intersections))
         // Begin the engine's main loop
         .run();
 }
@@ -338,7 +350,12 @@ fn mouse_look(
     settings: Res<CameraSettings>,
     mut orientation: ResMut<CameraOrientation>,
     mut query: Query<&mut Transform, With<FlyCamera>>,
+    drag_state: Res<DragState>,
 ) {
+    if drag_state.is_dragging == false {
+        return;
+    }
+
     let mut delta = Vec2::ZERO;
     if mouse_input.pressed(MouseButton::Left) {
         for event in mouse_events.read() {
@@ -381,6 +398,81 @@ fn mouse_scroll(
         let forward = transform.forward();
         transform.translation += forward * scroll_delta * settings.zoom_speed * time.delta_secs();
     }
+}
+
+// Returns an observer that updates the entity's material to the one specified
+fn update_material_on<E>(
+    new_material: Handle<StandardMaterial>,
+) -> impl Fn(Trigger<E>, Query<&mut MeshMaterial3d<StandardMaterial>>) {
+    move |trigger, mut query| {
+        if let Ok(mut material) = query.get_mut(trigger.target()) {
+            material.0 = new_material.clone();
+        }
+    }
+}
+
+// A system that draws hit indicator for every pointer
+fn draw_mesh_intersections(
+    pointers: Query<&PointerInteraction>,
+    mut gizmos: Gizmos
+) {
+    for (point, normal) in pointers
+        .iter()
+        .filter_map(|interaction| interaction.get_nearest_hit())
+        .filter_map(|(_entity, hit)| hit.position.zip(hit.normal)) {
+            gizmos.sphere(point, 0.05, RED_500);
+            gizmos.arrow(point, point + normal.normalize() * 0.5, PINK_100);
+    }
+}
+
+// fn start_drag(
+//     mut events: EventReader<Pointer<Out>>,
+//     mut drag_state: ResMut<DragState>,
+// ) {
+//     for _ in events.read() {
+//         drag_state.is_dragging = true;
+//     }
+// }
+
+// update this so that it mimics the update_material_on() function so that this one function
+// can handle when the pointer is on the entity and when it is not
+// fn end_drag<E>(
+// ) -> impl Fn(Trigger<E>, ResMut<DragState>) {
+//     move |trigger, mut query| {
+//         query.is_dragging = true;
+
+//     }
+    
+// }
+
+fn move_camera<E>(
+    drag: Trigger<Pointer<Drag>>,
+    mut transforms: Query<&mut Transform>,
+    mut drag_state: ResMut<DragState>,
+) {
+    if let Ok(mut transform) = transforms.get_mut(drag.target()) {
+        drag_state.is_dragging = true;
+    }
+}
+
+fn move_on_drag<E>(
+    drag: Trigger<Pointer<Drag>>,
+    mut transforms: Query<&mut Transform>,
+    mut drag_state: ResMut<DragState>,
+) {
+    drag_state.is_dragging = false;
+
+    if let Ok(mut transform) = transforms.get_mut(drag.target()) {
+        
+        // Adjust the movement scale to control sensitivity
+        let sensitivity = 0.01;
+
+        // Move the object along X and Y axis
+        transform.translation.x += drag.delta.x * sensitivity;
+        transform.translation.y -= drag.delta.y * sensitivity;
+        
+    }
+
 }
 
 // Generates a mesh for a square-based pyramid
@@ -485,10 +577,15 @@ fn interactive_menu(
     mut sphere_counter: ResMut<SphereCounter>,
     mut sphere_map: ResMut<SphereMap>,
     mut grav_scale: Query<&mut GravityScale>,
+    mut drag_state: ResMut<DragState>,
 ) -> Result {
     let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
     let pyramid = meshes.add(create_pyramid_mesh());
     let sphere = meshes.add(Sphere::new(0.5));
+
+    let shape_matl = materials.add(Color::srgb(0.8, 0.7, 0.6));
+    let hover_matl = materials.add(Color::from(CYAN_300));
+
     egui::Window::new("Rusty Physics Interactive Menu")
         .resizable(true)
         .vscroll(true)
@@ -515,7 +612,7 @@ fn interactive_menu(
 
                 let cube_entity = commands.spawn((
                     Mesh3d(cube.clone()),
-                    MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+                    MeshMaterial3d(shape_matl.clone()),
                     Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
                     Rotates,
                     Velocity::default(),
@@ -523,6 +620,9 @@ fn interactive_menu(
                     Collider::cuboid(0.25, 0.25, 0.25),
                     CubeId(id),
                 ))
+                .observe(update_material_on::<Pointer<Over>>(hover_matl.clone()))
+                .observe(update_material_on::<Pointer<Out>>(shape_matl.clone()))
+                .observe(move_on_drag::<Pointer<(Click)>>)
                 .insert(Restitution::coefficient(0.7))
                 .insert(GravityScale(1.0))
                 .id();
@@ -647,6 +747,8 @@ fn interactive_menu(
                     RigidBody::Fixed,
                     pyramid_collider,
                 ))
+                .observe(update_material_on::<Pointer<Over>>(hover_matl.clone()))
+                .observe(update_material_on::<Pointer<Out>>(shape_matl.clone()))
                 .insert(Restitution::coefficient(0.7))
                 .insert(GravityScale(1.0))
                 .id();
@@ -760,6 +862,8 @@ fn interactive_menu(
                     Collider::ball(0.25),
                     SphereId(id),
                 ))
+                .observe(update_material_on::<Pointer<Over>>(hover_matl.clone()))
+                .observe(update_material_on::<Pointer<Out>>(shape_matl.clone()))
                 .insert(Restitution::coefficient(0.7))
                 .insert(GravityScale(1.0))
                 .id();
@@ -855,6 +959,7 @@ fn interactive_menu(
                 }
             }
         });
+        drag_state.is_dragging = true;
     Ok(())
 }
 
