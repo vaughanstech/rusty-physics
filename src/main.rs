@@ -425,36 +425,12 @@ fn draw_mesh_intersections(
     }
 }
 
-// fn start_drag(
-//     mut events: EventReader<Pointer<Out>>,
-//     mut drag_state: ResMut<DragState>,
-// ) {
-//     for _ in events.read() {
-//         drag_state.is_dragging = true;
-//     }
-// }
+// This system should detect that the pointer is dragging an entity
+// thus block the camera from dragging along side while dragging the entity
 
-// update this so that it mimics the update_material_on() function so that this one function
-// can handle when the pointer is on the entity and when it is not
-// fn end_drag<E>(
-// ) -> impl Fn(Trigger<E>, ResMut<DragState>) {
-//     move |trigger, mut query| {
-//         query.is_dragging = true;
-
-//     }
-    
-// }
-
-fn move_camera<E>(
-    drag: Trigger<Pointer<Drag>>,
-    mut transforms: Query<&mut Transform>,
-    mut drag_state: ResMut<DragState>,
-) {
-    if let Ok(mut transform) = transforms.get_mut(drag.target()) {
-        drag_state.is_dragging = true;
-    }
-}
-
+// Although this system works, it needs to be more responsive
+// - when dragging the entity slowly there is still some camera movement (there should be ni camera movement at all)
+// - when the gravity toggle is active, it becomes almost impossible to drag the entity (entity most likely needs a larger hitbox)
 fn move_on_drag<E>(
     drag: Trigger<Pointer<Drag>>,
     mut transforms: Query<&mut Transform>,
@@ -558,8 +534,8 @@ fn create_pyramid_mesh() -> Mesh {
 /* Todo:
 - set gravity scale during runtime ✅
 - support for different shapes (triangle, circle) ✅
-- selectable entities
-- draggable entities
+- selectable entities ✅
+- draggable entities ✅
 - default maps
 - impulse effect on entites
 - block structures
@@ -622,7 +598,7 @@ fn interactive_menu(
                 ))
                 .observe(update_material_on::<Pointer<Over>>(hover_matl.clone()))
                 .observe(update_material_on::<Pointer<Out>>(shape_matl.clone()))
-                .observe(move_on_drag::<Pointer<(Click)>>)
+                .observe(move_on_drag::<Pointer<Click>>)
                 .insert(Restitution::coefficient(0.7))
                 .insert(GravityScale(1.0))
                 .id();
@@ -749,6 +725,7 @@ fn interactive_menu(
                 ))
                 .observe(update_material_on::<Pointer<Over>>(hover_matl.clone()))
                 .observe(update_material_on::<Pointer<Out>>(shape_matl.clone()))
+                .observe(move_on_drag::<Pointer<Click>>)
                 .insert(Restitution::coefficient(0.7))
                 .insert(GravityScale(1.0))
                 .id();
@@ -864,6 +841,7 @@ fn interactive_menu(
                 ))
                 .observe(update_material_on::<Pointer<Over>>(hover_matl.clone()))
                 .observe(update_material_on::<Pointer<Out>>(shape_matl.clone()))
+                .observe(move_on_drag::<Pointer<Click>>)
                 .insert(Restitution::coefficient(0.7))
                 .insert(GravityScale(1.0))
                 .id();
