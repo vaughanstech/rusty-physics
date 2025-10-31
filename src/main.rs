@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use bevy::{ color::palettes::{css::SILVER, tailwind::{CYAN_300, PINK_100, RED_500}}, input::mouse::{MouseMotion, MouseWheel}, picking::pointer::PointerInteraction, prelude::*, render::mesh::{Indices, PrimitiveTopology}};
 use bevy_asset::RenderAssetUsages;
-use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
-use bevy_rapier3d::prelude::*;
+use bevy_egui::{egui, input::EguiWantsInput, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use bevy_rapier3d::{na::Translation, prelude::*};
 
 #[derive(Component)]
 enum ExampleViewports {
@@ -87,6 +87,13 @@ struct SphereMap(HashMap<u32, Entity>);
 #[derive(Resource, Default)]
 struct SphereCounter(u32);
 
+// Tag to identify Plane entities that are created
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum MapTag {
+    Flat,
+    Ramp,
+}
+
 // Toggle resource that tracks when the user triggers a Grag event on an entity
 #[derive(Resource)]
 struct DragState {
@@ -139,47 +146,47 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>, // Resource for materials
 ) {
 
-    // ramp plane parameters
-    let slope_angle = -0.4; // radians (rotations around Z axis)
-    let slope_length = 20.0;
-    let slope_width = 10.0;
-    let ramp_origin = Vec3::new(0.0, 0.0, 0.0); // where ramp is centered in world
+    // // ramp plane parameters
+    // let slope_angle = -0.4; // radians (rotations around Z axis)
+    // let slope_length = 20.0;
+    // let slope_width = 10.0;
+    // let ramp_origin = Vec3::new(0.0, 0.0, 0.0); // where ramp is centered in world
 
-    // compute ramp endpoints in world space
-    let rotation = Quat::from_rotation_z(slope_angle);
-    let half_len = slope_length * 0.5;
+    // // compute ramp endpoints in world space
+    // let rotation = Quat::from_rotation_z(slope_angle);
+    // let half_len = slope_length * 0.5;
 
-    // Compute the ramp's local-to-world transform
-    let ramp_transform = Transform {
-        translation: ramp_origin,
-        rotation,
-        ..default()
-    };
-    // Local bottom edge point (along -Z)
-    let local_bottom_edge = Vec3::new(half_len, 0.0, 0.0);
+    // // Compute the ramp's local-to-world transform
+    // let ramp_transform = Transform {
+    //     translation: ramp_origin,
+    //     rotation,
+    //     ..default()
+    // };
+    // // Local bottom edge point (along -Z)
+    // let local_bottom_edge = Vec3::new(half_len, 0.0, 0.0);
 
-    // Convert that local point to world space
-    let bottom_edge = ramp_transform.transform_point(local_bottom_edge);
+    // // Convert that local point to world space
+    // let bottom_edge = ramp_transform.transform_point(local_bottom_edge);
 
-    // Floor: Flat mesh that object should sit on
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(slope_length, slope_width).subdivisions(10))),
-        MeshMaterial3d(materials.add(Color::from(SILVER))),
-        ramp_transform,
-        Collider::cuboid(10.0, 0.0, 5.0)
-    ));
+    // // Floor: Flat mesh that object should sit on
+    // commands.spawn((
+    //     Mesh3d(meshes.add(Plane3d::default().mesh().size(slope_length, slope_width).subdivisions(10))),
+    //     MeshMaterial3d(materials.add(Color::from(SILVER))),
+    //     ramp_transform,
+    //     Collider::cuboid(10.0, 0.0, 5.0)
+    // ));
 
-    // compute where to place flat plane
-    let flat_length = 20.0;
-    let flat_width = 20.0;
-    let flat_center = bottom_edge - Vec3::new(flat_length * 0.5 - flat_length, 0.0, 0.0);
+    // // compute where to place flat plane
+    // let flat_length = 20.0;
+    // let flat_width = 20.0;
+    // let flat_center = bottom_edge - Vec3::new(flat_length * 0.5 - flat_length, 0.0, 0.0);
 
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(flat_length, flat_width).subdivisions(10))),
-        MeshMaterial3d(materials.add(Color::from(SILVER))),
-        Transform::from_translation(flat_center),
-        Collider::cuboid(10.0, 0.0, 10.0)
-    ));
+    // commands.spawn((
+    //     Mesh3d(meshes.add(Plane3d::default().mesh().size(flat_length, flat_width).subdivisions(10))),
+    //     MeshMaterial3d(materials.add(Color::from(SILVER))),
+    //     Transform::from_translation(flat_center),
+    //     Collider::cuboid(10.0, 0.0, 10.0)
+    // ));
 
     // let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
 
@@ -351,8 +358,9 @@ fn mouse_look(
     mut orientation: ResMut<CameraOrientation>,
     mut query: Query<&mut Transform, With<FlyCamera>>,
     drag_state: Res<DragState>,
+    egui_ctx: Res<EguiWantsInput>,
 ) {
-    if drag_state.is_dragging == false {
+    if drag_state.is_dragging == false || egui_ctx.is_pointer_over_area() {
         return;
     }
 
@@ -431,11 +439,13 @@ fn draw_mesh_intersections(
 // Although this system works, it needs to be more responsive
 // - when dragging the entity slowly there is still some camera movement (there should be ni camera movement at all)
 // - when the gravity toggle is active, it becomes almost impossible to drag the entity (entity most likely needs a larger hitbox)
+// - should add support for dragging the entity along the z axis also (the entity can only be dragged along the x and y axis)
 fn move_on_drag<E>(
     drag: Trigger<Pointer<Drag>>,
     mut transforms: Query<&mut Transform>,
     mut drag_state: ResMut<DragState>,
 ) {
+    
     drag_state.is_dragging = false;
 
     if let Ok(mut transform) = transforms.get_mut(drag.target()) {
@@ -531,6 +541,78 @@ fn create_pyramid_mesh() -> Mesh {
     mesh
 }
 
+fn spawn_flat_map(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    length: f32,
+    width: f32,
+) {
+    let plane_mesh = meshes.add(Plane3d::default().mesh().size(length, width).subdivisions(10));
+    let plane_material = materials.add(Color::from(SILVER));
+
+    commands.spawn((
+        Mesh3d(plane_mesh.clone()),
+        MeshMaterial3d(plane_material.clone()),
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+        Collider::cuboid(length/2.0, 0.0, length/2.0),
+        MapTag::Flat,
+    ));
+}
+
+fn spawn_ramp_map(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    length: f32,
+    width: f32,
+    angle: f32,
+) {
+    // ramp plane parameters
+    let slope_angle = -angle; // radians (rotations around Z axis)
+    let slope_length = length;
+    let slope_width = length;
+    let ramp_origin = Vec3::new(0.0, 0.0, 0.0); // where ramp is centered in world
+
+    // compute ramp endpoints in world space
+    let rotation = Quat::from_rotation_z(slope_angle);
+    let half_len = slope_length * 0.5;
+
+    // Compute the ramp's local-to-world transform
+    let ramp_transform = Transform {
+        translation: ramp_origin,
+        rotation,
+        ..default()
+    };
+    // Local bottom edge point (along -Z)
+    let local_bottom_edge = Vec3::new(half_len, 0.0, 0.0);
+
+    // Convert that local point to world space
+    let bottom_edge = ramp_transform.transform_point(local_bottom_edge);
+
+    // Floor: Flat mesh that object should sit on
+    commands.spawn((
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(slope_length, slope_width).subdivisions(10))),
+        MeshMaterial3d(materials.add(Color::from(SILVER))),
+        ramp_transform,
+        Collider::cuboid(width, 0.0, width),
+        MapTag::Ramp,
+    ));
+
+    // compute where to place flat plane
+    let flat_length = length;
+    let flat_width = width * 2.0;
+    let flat_center = bottom_edge - Vec3::new(flat_length * 0.5 - flat_length, 0.0, 0.0);
+
+    commands.spawn((
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(flat_length, flat_width).subdivisions(10))),
+        MeshMaterial3d(materials.add(Color::from(SILVER))),
+        Transform::from_translation(flat_center),
+        Collider::cuboid(width, 0.0, width),
+        MapTag::Ramp,
+    ));
+}
+
 /* Todo:
 - set gravity scale during runtime ✅
 - support for different shapes (triangle, circle) ✅
@@ -552,6 +634,7 @@ fn interactive_menu(
     mut pyramid_map: ResMut<PyramidMap>,
     mut sphere_counter: ResMut<SphereCounter>,
     mut sphere_map: ResMut<SphereMap>,
+    maps: Query<(Entity, &MapTag)>,
     mut grav_scale: Query<&mut GravityScale>,
     mut drag_state: ResMut<DragState>,
 ) -> Result {
@@ -577,6 +660,26 @@ fn interactive_menu(
             ui.label("Keybinds:");
             ui.label("Restart Simulation: R");
             ui.label("Enable Gravity: G");
+
+            ui.separator();
+            ui.label("Spawn Maps");
+            ui.horizontal(|ui| {
+                for tag in [MapTag::Flat, MapTag::Ramp] {
+                    let label = format!("{:?}", tag);
+                    if ui.button(label).clicked() {
+                        // despawn all existing maps
+                        for (entity, _) in maps.iter() {
+                            commands.entity(entity).despawn();
+                        }
+
+                        // spawn the selected map
+                        match tag {
+                            MapTag::Flat => spawn_flat_map(&mut commands, &mut meshes, &mut materials, 10.0, 10.0),
+                            MapTag::Ramp => spawn_ramp_map(&mut commands, &mut meshes, &mut materials, 20.0, 10.0, 0.4),
+                        }
+                    }
+                }
+            });
 
             ui.separator();
             ui.horizontal(|ui| {
