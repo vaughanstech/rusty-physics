@@ -74,14 +74,14 @@ fn setup(
 
     let cube_scene_handle = asset_server.load(
         GltfAssetLabel::Scene(0)
-            .from_asset("everything.glb"),
+            .from_asset("shapes.glb"),
     );
     commands.insert_resource(CubeSceneHandle(cube_scene_handle));
 
     commands.spawn(SceneRoot(
         asset_server.load(
-            GltfAssetLabel::Scene(1)
-                .from_asset("everything.glb"),
+            GltfAssetLabel::Scene(0)
+                .from_asset("maps.glb"),
         )
     ))
     .observe(on_level_scene_spawn);
@@ -103,7 +103,6 @@ fn process_gltf_descendants(
         let Ok(gltf_mesh_extras) = extras.get(entity) else {
             continue;
         };
-
         let Ok(data) = serde_json::from_str::<BMeshExtras>(&gltf_mesh_extras.value) else {
             error!("Couldn't deserialize extras!");
             continue;
@@ -123,12 +122,14 @@ fn process_gltf_descendants(
                 let size = data.cube_size.expect(
                     "Cuboid collider must have cube_size",
                 );
+                // Scale the defined size by the entity's scale to avoid wrong collider size
+                let scaled_size = size * 2.0;
                 commands.entity(entity).insert((
                     match data.rigid_body {
                         BRigidBody::Static => RigidBody::Static,
                         BRigidBody::Dynamic => RigidBody::Dynamic,
                     },
-                    Collider::cuboid(size.x, size.y, size.z)
+                    Collider::cuboid(scaled_size.x, scaled_size.y, scaled_size.z)
                 ));
             }
         }
