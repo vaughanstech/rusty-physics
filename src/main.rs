@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::{time::Duration};
 
-use avian3d::{PhysicsPlugins, prelude::PhysicsDebugPlugin};
-use bevy::{ color::palettes::{css::SILVER, tailwind::{CYAN_300, PINK_100, RED_500}}, input::mouse::{MouseMotion, MouseWheel}, picking::pointer::PointerInteraction, prelude::*};
-use bevy_asset::RenderAssetUsages;
-use bevy_egui::{egui, input::EguiWantsInput, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use avian3d::{PhysicsPlugins, prelude::*};
+use bevy::{DefaultPlugins, gltf::GltfMeshExtras, prelude::*, scene::SceneInstanceReady, time::common_conditions::on_timer };
+use bevy_asset::{AssetServer, Handle};
+use serde::{Deserialize, Serialize};
 
 #[derive(Component)]
 enum ExampleViewports {
@@ -17,247 +17,53 @@ enum ExampleViewports {
     _OrthographicControl,
 }
 
-// Used for dynamic plane surfaces
-#[derive(Component)]
-pub struct PlaneCollider {
-    pub normal: Vec3,
-    pub point: Vec3,
-    pub restitution: f32,
-}
-
-// Component marker for any entity that should rotate
-#[derive(Component)]
-struct Rotates;
-
-// Component used to tag the camera entity
-#[derive(Component)]
-struct FlyCamera;
-
-// Configuration resource for the camera controller
 #[derive(Resource)]
-struct CameraSettings {
-    speed: f32, // movement speed
-    sensitivity: f32, // mouse look sensitivity
-    zoom_speed: f32,
+struct CubeSceneHandle(Handle<Scene>);
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BMeshExtras {
+    collider: BCollider,
+    rigid_body: BRigidBody,
+    cube_size: Option<Vec3>,
 }
 
-// State resource to store current yaw/pitch for smooth rotation
-#[derive(Resource, Default)]
-struct CameraOrientation {
-    yaw: f32,
-    pitch: f32,
+#[derive(Debug, Serialize, Deserialize)]
+enum BCollider {
+    TrimeshFromMesh,
+    Cuboid,
 }
 
-// Tag to identify individual Cubes that are spawned
-#[derive(Component)]
-#[allow(dead_code)]
-struct CubeId(u32);
-
-// Lookup table resource for quickly accessing Cubes that are spawned
-#[derive(Resource, Default)]
-struct CubeMap(HashMap<u32, Entity>);
-
-// Counter to keep track of the number of cube instances spawned
-#[derive(Resource, Default)]
-struct CubeCounter(u32);
-
-// Tag to identify individual Pyramids that are spawned
-#[derive(Component)]
-#[allow(dead_code)]
-struct PyramidId(u32);
-
-// Lookup table resource for quickly accessing Pyramids that are spawned
-#[derive(Resource, Default)]
-struct PyramidMap(HashMap<u32, Entity>);
-
-// Counter to keep track of the number of pyramid instances spawned
-#[derive(Resource, Default)]
-struct PyramidCounter(u32);
-
-// Tag to identify individual Pyramids that are spawned
-#[derive(Component)]
-#[allow(dead_code)]
-struct SphereId(u32);
-
-// Lookup table resource for quickly accessing Pyramids that are spawned
-#[derive(Resource, Default)]
-struct SphereMap(HashMap<u32, Entity>);
-
-// Counter to keep track of the number of pyramid instances spawned
-#[derive(Resource, Default)]
-struct SphereCounter(u32);
-
-// Tag to identify Plane entities that are created
-#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum MapTag {
-    Flat,
-    Ramp,
-}
-
-// Toggle resource that tracks when the user triggers a Grag event on an entity
-#[derive(Resource)]
-struct DragState {
-    is_dragging: bool,
-}
-impl Default for DragState {
-    fn default() -> Self {
-        Self { is_dragging: true }
-    }
+#[derive(Debug, Serialize, Deserialize)]
+enum BRigidBody {
+    Static,
+    Dynamic,
 }
 
 fn main() {
-    // Entry point of the application
     App::new()
-        // Load all default Bevy plugins (window, renderer, input, etc.)
         .add_plugins((
             DefaultPlugins,
             PhysicsPlugins::default(),
             PhysicsDebugPlugin::default(),
-            EguiPlugin::default(),
-            MeshPickingPlugin,
         ))
-        // Insert camera controller settings
-        .insert_resource(CameraSettings {
-            speed: 8.0,
-            sensitivity: 0.002,
-            zoom_speed: 5.0,
-        })
-        // Insert physics settings
-        .insert_resource(CameraOrientation::default())
-        .insert_resource(CubeCounter::default())
-        .insert_resource(CubeMap::default())
-        .insert_resource(PyramidCounter::default())
-        .insert_resource(PyramidMap::default())
-        .insert_resource(SphereCounter::default())
-        .insert_resource(SphereMap::default())
-        .insert_resource(DragState::default())
-        // Run this system once at startup
-        .add_systems(Startup, (setup_camera, setup_lighting))
         .add_systems(Startup, setup)
-        .add_systems(EguiPrimaryContextPass, interactive_menu)
-        // Run this system every frame
-        .add_systems(Update, (keyboard_movement, mouse_look, mouse_scroll, restart_scene_on_key, toggle_gravity, toggle_debug_render, draw_mesh_intersections))
-        // Begin the engine's main loop
+        .add_systems(Update, spawn_cubes.run_if(on_timer(Duration::from_secs(1))))
         .run();
 }
 
-
-
-// Runs once when the app starts, sets up the scene
 fn setup(
-    mut commands: Commands, // used to spawn entities
-    mut meshes: ResMut<Assets<Mesh>>, // resource for managing meshes
-    mut materials: ResMut<Assets<StandardMaterial>>, // Resource for materials
-) {
-
-    // // ramp plane parameters
-    // let slope_angle = -0.4; // radians (rotations around Z axis)
-    // let slope_length = 20.0;
-    // let slope_width = 10.0;
-    // let ramp_origin = Vec3::new(0.0, 0.0, 0.0); // where ramp is centered in world
-
-    // // compute ramp endpoints in world space
-    // let rotation = Quat::from_rotation_z(slope_angle);
-    // let half_len = slope_length * 0.5;
-
-    // // Compute the ramp's local-to-world transform
-    // let ramp_transform = Transform {
-    //     translation: ramp_origin,
-    //     rotation,
-    //     ..default()
-    // };
-    // // Local bottom edge point (along -Z)
-    // let local_bottom_edge = Vec3::new(half_len, 0.0, 0.0);
-
-    // // Convert that local point to world space
-    // let bottom_edge = ramp_transform.transform_point(local_bottom_edge);
-
-    // // Floor: Flat mesh that object should sit on
-    // commands.spawn((
-    //     Mesh3d(meshes.add(Plane3d::default().mesh().size(slope_length, slope_width).subdivisions(10))),
-    //     MeshMaterial3d(materials.add(Color::from(SILVER))),
-    //     ramp_transform,
-    //     Collider::cuboid(10.0, 0.0, 5.0)
-    // ));
-
-    // // compute where to place flat plane
-    // let flat_length = 20.0;
-    // let flat_width = 20.0;
-    // let flat_center = bottom_edge - Vec3::new(flat_length * 0.5 - flat_length, 0.0, 0.0);
-
-    // commands.spawn((
-    //     Mesh3d(meshes.add(Plane3d::default().mesh().size(flat_length, flat_width).subdivisions(10))),
-    //     MeshMaterial3d(materials.add(Color::from(SILVER))),
-    //     Transform::from_translation(flat_center),
-    //     Collider::cuboid(10.0, 0.0, 10.0)
-    // ));
-
-    // let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
-
-    // Cube: mesh + material + transform + custom component
-    // for x in -1..2 {
-    //     for z in -1..2 {
-    //         commands.spawn((
-    //             // Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-    //             Mesh3d(cube.clone()),
-    //             MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-    //             Transform::from_translation(Vec3::new(x as f32, 30.0, z as f32)),
-    //             Rotates,
-    //             Velocity::default(),
-    //             Collider {
-    //                 half_extents: Vec3::splat(0.25),
-    //                 is_static: false,
-    //                 restitution: 0.2,
-    //             }
-    //         ));
-    //     }
-        
-    // }
-
-    // commands.spawn((
-    //     Mesh3d(cube.clone()),
-    //     MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-    //     Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
-    //     Rotates,
-    //     Velocity::default(),
-    //     RigidBody::Fixed,
-    //     Collider::cuboid(0.25, 0.25, 0.25),
-    // ))
-    // .insert(Restitution::coefficient(0.7))
-    // .insert(GravityScale(1.0));
-
-    // commands.spawn((
-    //     Mesh3d(cube.clone()),
-    //     MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-    //     Transform::from_translation(Vec3::new(0.0, 20.0, 0.0)),
-    //     Rotates,
-    //     Velocity::default(),
-    //     Collider {
-    //         half_extents: Vec3::splat(0.25),
-    //         is_static: false,
-    //         restitution: 0.2,
-    //     },
-    // ));
-}
-
-fn setup_camera(
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
 ) {
-    let transform = Transform::from_xyz(0.0, 10.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y);
+    let transform = Transform::from_xyz(20.0, 10.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y);
     // Camera: positioned above and behind the origin, looking down
     commands.spawn((
         Camera3d::default(),
-        Camera::default(),
         ExampleViewports::_PerspectiveMain,
         transform,
-        FlyCamera,
     ));
-}
 
-fn setup_lighting(
-    mut commands: Commands,
-) {
-    // Light: bright white light above the cube
+    // Light: bright white light
     commands.spawn((
         PointLight {
             shadows_enabled: true,
@@ -265,792 +71,110 @@ fn setup_lighting(
         },
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
-}
 
-fn restart_scene_on_key(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut commands: Commands,
-    query: Query<Entity, (With<RigidBody>, Without<Camera>, Without<Window>)>,
-    meshes: ResMut<Assets<Mesh>>,
-    materials: ResMut<Assets<StandardMaterial>>,
-) {
-    if keys.just_pressed(KeyCode::KeyR) {
-        // Despawn all entities except the camera
-        for entity in &query {
-            commands.entity(entity).despawn();
-        }
-
-        // Recreate the scene
-        setup(commands, meshes, materials);
-        
-        info!("Scene Restarted!");
-    }
-}
-
-fn toggle_gravity(
-    mut query: Query<&mut RigidBody>,
-    keys: Res<ButtonInput<KeyCode>>,
-) {
-    if keys.just_pressed(KeyCode::KeyG) {
-        for mut rigid_body in query.iter_mut() {
-            *rigid_body = match *rigid_body {
-                RigidBody::Dynamic => RigidBody::Fixed,
-                _ => RigidBody::Dynamic
-            }
-        }
-    }
-}
-
-fn toggle_debug_render(
-    mut debug_render_context: ResMut<DebugRenderContext>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-) {
-    if keyboard_input.just_pressed(KeyCode::KeyQ) {
-        debug_render_context.enabled = !debug_render_context.enabled;
-        println!("Toggled debug render")
-    }
-}
-
-// Handles keyboard input for movement
-fn keyboard_movement(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
-    settings: Res<CameraSettings>,
-    mut query: Query<&mut Transform, With<FlyCamera>>,
-) {
-    for mut transform in &mut query {
-        let mut direction = Vec3::ZERO;
-
-        // Local forward and right vectors relative to camera
-        let forward = transform.forward();
-        let right = transform.right();
-
-        // WASD movement
-        if keyboard_input.pressed(KeyCode::KeyW) {
-            direction += *forward;
-        }
-        if keyboard_input.pressed(KeyCode::KeyS) {
-            direction -= *forward;
-        }
-        if keyboard_input.pressed(KeyCode::KeyA) {
-            direction -= *right;
-        }
-        if keyboard_input.pressed(KeyCode::KeyD) {
-            direction += *right;
-        }
-
-        // Up/Down
-        if keyboard_input.pressed(KeyCode::Space) {
-            direction += Vec3::Y;
-        }
-        if keyboard_input.pressed(KeyCode::ShiftLeft) {
-            direction -= Vec3::Y;
-        }
-
-        if direction.length_squared() > 0.0 {
-            direction = direction.normalize();
-            transform.translation += direction * settings.speed * time.delta_secs();
-        }
-    }
-}
-
-// Handles mouse movement for looking around
-fn mouse_look(
-    mut mouse_events: EventReader<MouseMotion>,
-    mouse_input: Res<ButtonInput<MouseButton>>,
-    settings: Res<CameraSettings>,
-    mut orientation: ResMut<CameraOrientation>,
-    mut query: Query<&mut Transform, With<FlyCamera>>,
-    drag_state: Res<DragState>,
-    egui_ctx: Res<EguiWantsInput>,
-) {
-    if drag_state.is_dragging == false || egui_ctx.is_pointer_over_area() {
-        return;
-    }
-
-    let mut delta = Vec2::ZERO;
-    if mouse_input.pressed(MouseButton::Left) {
-        for event in mouse_events.read() {
-            delta += event.delta;
-        }
-    }
-
-    if delta.length_squared() == 0.0 {
-        return;
-    }
-
-    // Update yaw and pitch
-    orientation.yaw -= delta.x * settings.sensitivity;
-    orientation.pitch -= delta.y * settings.sensitivity;
-    orientation.pitch = orientation.pitch.clamp(-1.54, 1.54); // prevent flipping
-
-    // Apply rotation to camera transformation
-    for mut transform in &mut query {
-        transform.rotation = Quat::from_axis_angle(Vec3::Y, orientation.yaw) * Quat::from_axis_angle(Vec3::X, orientation.pitch);
-    }
-}
-
-fn mouse_scroll(
-    mut scroll_events: EventReader<MouseWheel>,
-    time: Res<Time>,
-    settings: Res<CameraSettings>,
-    mut query: Query<&mut Transform, With<FlyCamera>>,
-) {
-    let mut scroll_delta = 0.0;
-    for event in scroll_events.read() {
-        // Scroll "up" is positive
-        scroll_delta += event.y;
-    }
-
-    if scroll_delta.abs() < f32::EPSILON {
-        return;
-    }
-
-    for mut transform in &mut query {
-        let forward = transform.forward();
-        transform.translation += forward * scroll_delta * settings.zoom_speed * time.delta_secs();
-    }
-}
-
-// Returns an observer that updates the entity's material to the one specified
-fn update_material_on<E>(
-    new_material: Handle<StandardMaterial>,
-) -> impl Fn(Trigger<E>, Query<&mut MeshMaterial3d<StandardMaterial>>) {
-    move |trigger, mut query| {
-        if let Ok(mut material) = query.get_mut(trigger.target()) {
-            material.0 = new_material.clone();
-        }
-    }
-}
-
-// A system that draws hit indicator for every pointer
-fn draw_mesh_intersections(
-    pointers: Query<&PointerInteraction>,
-    mut gizmos: Gizmos
-) {
-    for (point, normal) in pointers
-        .iter()
-        .filter_map(|interaction| interaction.get_nearest_hit())
-        .filter_map(|(_entity, hit)| hit.position.zip(hit.normal)) {
-            gizmos.sphere(point, 0.05, RED_500);
-            gizmos.arrow(point, point + normal.normalize() * 0.5, PINK_100);
-    }
-}
-
-// This system should detect that the pointer is dragging an entity
-// thus block the camera from dragging along side while dragging the entity
-
-// Although this system works, it needs to be more responsive
-// - when dragging the entity slowly there is still some camera movement (there should be ni camera movement at all)
-// - when the gravity toggle is active, it becomes almost impossible to drag the entity (entity most likely needs a larger hitbox)
-// - should add support for dragging the entity along the z axis also (the entity can only be dragged along the x and y axis)
-fn move_on_drag<E>(
-    drag: Trigger<Pointer<Drag>>,
-    mut transforms: Query<&mut Transform>,
-    mut drag_state: ResMut<DragState>,
-) {
-    
-    drag_state.is_dragging = false;
-
-    if let Ok(mut transform) = transforms.get_mut(drag.target()) {
-        
-        // Adjust the movement scale to control sensitivity
-        let sensitivity = 0.01;
-
-        // Move the object along X and Y axis
-        transform.translation.x += drag.delta.x * sensitivity;
-        transform.translation.y -= drag.delta.y * sensitivity;
-        
-    }
-
-}
-
-// Generates a mesh for a square-based pyramid
-fn create_pyramid_mesh() -> Mesh {
-    let base_size = 1.0;
-    let height = 1.0;
-
-    let half = base_size / 2.0;
-
-    // --- Base (facing down) ---
-    let base_vertices = vec![
-        ([ half, 0.0,  half], [0.0, -1.0, 0.0], [0.0, 0.0]), // 0
-        ([-half, 0.0,  half], [0.0, -1.0, 0.0], [1.0, 0.0]), // 1
-        ([-half, 0.0, -half], [0.0, -1.0, 0.0], [1.0, 1.0]), // 2
-        ([ half, 0.0, -half], [0.0, -1.0, 0.0], [0.0, 1.0]), // 3
-    ];
-
-    // --- Sides ---
-    // We'll compute normals per face using cross products.
-    let apex = Vec3::new(0.0, height, 0.0);
-    let base_points = [
-        Vec3::new( half, 0.0,  half), // front-right
-        Vec3::new(-half, 0.0,  half), // front-left
-        Vec3::new(-half, 0.0, -half), // back-left
-        Vec3::new( half, 0.0, -half), // back-right
-    ];
-
-    // Helper to compute face normal
-    fn face_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
-        (b - a).cross(c - a).normalize()
-    }
-
-    let mut side_vertices = Vec::new();
-    for i in 0..4 {
-        let p0 = base_points[i];
-        let p1 = base_points[(i + 1) % 4];
-        let normal = face_normal(p0, p1, apex);
-        // Triangle vertices for this face
-        side_vertices.push((p0.to_array(), normal.to_array(), [0.0, 0.0]));
-        side_vertices.push((p1.to_array(), normal.to_array(), [1.0, 0.0]));
-        side_vertices.push((apex.to_array(), normal.to_array(), [0.5, 1.0]));
-    }
-
-    let mut vertices = Vec::new();
-    vertices.extend(base_vertices);
-    vertices.extend(side_vertices);
-
-    let mut mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
+    let cube_scene_handle = asset_server.load(
+        GltfAssetLabel::Scene(0)
+            .from_asset("everything.glb"),
     );
+    commands.insert_resource(CubeSceneHandle(cube_scene_handle));
 
-    let positions: Vec<[f32; 3]> = vertices.iter().map(|(p, _, _)| *p).collect();
-    let normals: Vec<[f32; 3]> = vertices.iter().map(|(_, n, _)| *n).collect();
-    let uvs: Vec<[f32; 2]> = vertices.iter().map(|(_, _, uv)| *uv).collect();
+    commands.spawn(SceneRoot(
+        asset_server.load(
+            GltfAssetLabel::Scene(1)
+                .from_asset("everything.glb"),
+        )
+    ))
+    .observe(on_level_scene_spawn);
+}
 
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+/// Process all entities within an newly loaded scene instance
+/// and apply physics components based on GLTF extras
+fn process_gltf_descendants(
+    trigger_entity: Entity,
+    mut commands: Commands,
+    children: Query<&Children>,
+    extras: &Query<&GltfMeshExtras>,
+) {
+    info!("Processing scene descendants for entity {:?}", trigger_entity);
 
-    // --- Indices ---
-    // Base: two triangles
-    let mut indices = vec![
-        0, 2, 1,
-        0, 3, 2,
-    ];
+    // Iterate through the scene to check entities
+    for entity in children.iter_descendants(trigger_entity) {
+        // If the entity has a GltfMeshExtras component, apply physics
+        let Ok(gltf_mesh_extras) = extras.get(entity) else {
+            continue;
+        };
 
-    // Sides: each face adds 3 vertices, so offset starts at 4
-    for i in 0..4 {
-        let base_index = 4 + i * 3;
-        indices.extend_from_slice(&[
-            base_index,
-            base_index + 1,
-            base_index + 2,
-        ]);
+        let Ok(data) = serde_json::from_str::<BMeshExtras>(&gltf_mesh_extras.value) else {
+            error!("Couldn't deserialize extras!");
+            continue;
+        };
+
+        match data.collider {
+            BCollider::TrimeshFromMesh => {
+                commands.entity(entity).insert((
+                    match data.rigid_body {
+                        BRigidBody::Static => RigidBody::Static,
+                        BRigidBody::Dynamic => RigidBody::Dynamic,
+                    },
+                    ColliderConstructor::TrimeshFromMesh,
+                ));
+            }
+            BCollider::Cuboid => {
+                let size = data.cube_size.expect(
+                    "Cuboid collider must have cube_size",
+                );
+                commands.entity(entity).insert((
+                    match data.rigid_body {
+                        BRigidBody::Static => RigidBody::Static,
+                        BRigidBody::Dynamic => RigidBody::Dynamic,
+                    },
+                    Collider::cuboid(size.x, size.y, size.z)
+                ));
+            }
+        }
     }
-
-    mesh.insert_indices(Indices::U32(indices));
-
-    mesh
 }
 
-fn spawn_flat_map(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    length: f32,
-    width: f32,
+/// A dedicated observer system for the initial, one-time level setup (Scene 1).
+fn on_level_scene_spawn(
+    trigger: On<SceneInstanceReady>,
+    commands: Commands,
+    children: Query<&Children>,
+    extras: Query<&GltfMeshExtras>,
 ) {
-    let plane_mesh = meshes.add(Plane3d::default().mesh().size(length, width).subdivisions(10));
-    let plane_material = materials.add(Color::from(SILVER));
-
-    commands.spawn((
-        Mesh3d(plane_mesh.clone()),
-        MeshMaterial3d(plane_material.clone()),
-        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-        Collider::cuboid(length/2.0, 0.0, length/2.0),
-        MapTag::Flat,
-    ));
+    info!("LEVEL SCENE READY: Running physics setup for the main level. (ONE TIME)");
+    process_gltf_descendants(
+        trigger.entity,
+        commands,
+        children,
+        &extras,
+    );
 }
 
-fn spawn_ramp_map(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    length: f32,
-    width: f32,
-    angle: f32,
+/// A dedicated observer system for the repetitive cube spawns (Scene 0).
+fn on_cube_scene_spawn(
+    trigger: On<SceneInstanceReady>,
+    commands: Commands,
+    children: Query<&Children>,
+    extras: Query<&GltfMeshExtras>,
 ) {
-    // ramp plane parameters
-    let slope_angle = -angle; // radians (rotations around Z axis)
-    let slope_length = length;
-    let slope_width = length;
-    let ramp_origin = Vec3::new(0.0, 0.0, 0.0); // where ramp is centered in world
-
-    // compute ramp endpoints in world space
-    let rotation = Quat::from_rotation_z(slope_angle);
-    let half_len = slope_length * 0.5;
-
-    // Compute the ramp's local-to-world transform
-    let ramp_transform = Transform {
-        translation: ramp_origin,
-        rotation,
-        ..default()
-    };
-    // Local bottom edge point (along -Z)
-    let local_bottom_edge = Vec3::new(half_len, 0.0, 0.0);
-
-    // Convert that local point to world space
-    let bottom_edge = ramp_transform.transform_point(local_bottom_edge);
-
-    // Floor: Flat mesh that object should sit on
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(slope_length, slope_width).subdivisions(10))),
-        MeshMaterial3d(materials.add(Color::from(SILVER))),
-        ramp_transform,
-        Collider::cuboid(width, 0.0, width),
-        MapTag::Ramp,
-    ));
-
-    // compute where to place flat plane
-    let flat_length = length;
-    let flat_width = width * 2.0;
-    let flat_center = bottom_edge - Vec3::new(flat_length * 0.5 - flat_length, 0.0, 0.0);
-
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(flat_length, flat_width).subdivisions(10))),
-        MeshMaterial3d(materials.add(Color::from(SILVER))),
-        Transform::from_translation(flat_center),
-        Collider::cuboid(width, 0.0, width),
-        MapTag::Ramp,
-    ));
+    info!("CUBE SCENE READY: Running physics setup for a new cube.");
+    process_gltf_descendants(
+        trigger.entity,
+        commands,
+        children,
+        &extras,
+    );
 }
 
-/* Todo:
-- set gravity scale during runtime ✅
-- support for different shapes (triangle, circle) ✅
-- selectable entities ✅
-- draggable entities ✅
-- default maps
-- impulse effect on entites
-- block structures
-*/
-fn interactive_menu(
-    mut contexts: EguiContexts,
-    mut commands: Commands, // used to spawn entities
-    mut meshes: ResMut<Assets<Mesh>>, // resource for managing meshes
-    mut materials: ResMut<Assets<StandardMaterial>>, // Resource for materials
-    mut query: Query<&mut Transform>,
-    mut cube_counter: ResMut<CubeCounter>,
-    mut cube_map: ResMut<CubeMap>,
-    mut pyramid_counter: ResMut<PyramidCounter>,
-    mut pyramid_map: ResMut<PyramidMap>,
-    mut sphere_counter: ResMut<SphereCounter>,
-    mut sphere_map: ResMut<SphereMap>,
-    maps: Query<(Entity, &MapTag)>,
-    mut grav_scale: Query<&mut GravityScale>,
-    mut drag_state: ResMut<DragState>,
-) -> Result {
-    let cube = meshes.add(Cuboid::new(0.5, 0.5, 0.5));
-    let pyramid = meshes.add(create_pyramid_mesh());
-    let sphere = meshes.add(Sphere::new(0.5));
-
-    let shape_matl = materials.add(Color::srgb(0.8, 0.7, 0.6));
-    let hover_matl = materials.add(Color::from(CYAN_300));
-
-    egui::Window::new("Rusty Physics Interactive Menu")
-        .resizable(true)
-        .vscroll(true)
-        .default_open(false)
-        .show(contexts.ctx_mut()?, |ui| {
-            ui.label("Label!");
-
-            if ui.button("Button!").clicked() {
-                println!("boom!")
-            }
-
-            // these should be buttons in the future
-            ui.label("Keybinds:");
-            ui.label("Restart Simulation: R");
-            ui.label("Enable Gravity: G");
-
-            ui.separator();
-            ui.label("Spawn Maps");
-            ui.horizontal(|ui| {
-                for tag in [MapTag::Flat, MapTag::Ramp] {
-                    let label = format!("{:?}", tag);
-                    if ui.button(label).clicked() {
-                        // despawn all existing maps
-                        for (entity, _) in maps.iter() {
-                            commands.entity(entity).despawn();
-                        }
-
-                        // spawn the selected map
-                        match tag {
-                            MapTag::Flat => spawn_flat_map(&mut commands, &mut meshes, &mut materials, 10.0, 10.0),
-                            MapTag::Ramp => spawn_ramp_map(&mut commands, &mut meshes, &mut materials, 20.0, 10.0, 0.4),
-                        }
-                    }
-                }
-            });
-
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label("Spawn Cubes")
-            });
-            if ui.button("Spawn Cube").clicked() {
-                cube_counter.0 += 1;
-                let id = cube_counter.0;
-
-                let cube_entity = commands.spawn((
-                    Mesh3d(cube.clone()),
-                    MeshMaterial3d(shape_matl.clone()),
-                    Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
-                    Rotates,
-                    Velocity::default(),
-                    RigidBody::Fixed,
-                    Collider::cuboid(0.25, 0.25, 0.25),
-                    CubeId(id),
-                ))
-                .observe(update_material_on::<Pointer<Over>>(hover_matl.clone()))
-                .observe(update_material_on::<Pointer<Out>>(shape_matl.clone()))
-                .observe(move_on_drag::<Pointer<Click>>)
-                .insert(Restitution::coefficient(0.7))
-                .insert(GravityScale(1.0))
-                .id();
-
-                cube_map.0.insert(id, cube_entity);
-            }
-
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label("Cube Entities")
-            });
-            for (id, &entity) in cube_map.0.iter() {
-                if let Ok(mut transform) = query.get_mut(entity) {
-                    // grab cube information
-                    let mut x = transform.translation.x;
-                    let mut y = transform.translation.y;
-                    let mut z = transform.translation.z;
-                    let mut pos = transform.translation;
-
-                    // identify cube
-                    ui.collapsing(format!("Cube {}: ", id), |ui| {
-                        ui.collapsing("Modify Cube Position", |ui| {
-                            // modify x position
-                            ui.horizontal(|ui| {
-                                ui.label(format!("X Position: {}", x));
-                                ui.add(egui::DragValue::new(&mut x).speed(0.1));
-                                if ui.button("-").clicked() {
-                                    pos.x -= 1.0;
-                                }
-                                if ui.button("+").clicked() {
-                                    pos.x += 1.0;
-                                }
-                            });
-
-                            // modify y position
-                            ui.horizontal(|ui| {
-                                ui.label(format!("Y Position: {}", y));
-                                ui.add(egui::DragValue::new(&mut y).speed(0.1));
-                                if ui.button("-").clicked() {
-                                    pos.y -= 1.0;
-                                }
-                                if ui.button("+").clicked() {
-                                    pos.y += 1.0;
-                                }
-                            });
-
-                            // modify z position
-                            ui.horizontal(|ui| {
-                                ui.label(format!("Z Position: {}", z));
-                                ui.add(egui::DragValue::new(&mut z).speed(0.1));
-                                if ui.button("-").clicked() {
-                                    pos.z -= 1.0;
-                                }
-                                if ui.button("+").clicked() {
-                                    pos.z += 1.0;
-                                }
-                            });
-
-                            // reset cube position (0.0, 10.0, 0.0)
-                            if ui.button("Reset Cube Position").clicked() {
-                                pos.x = 0.0;
-                                pos.y = 10.0;
-                                pos.z = 0.0;
-                            }
-
-                            transform.translation = pos;
-                        });
-
-                        ui.collapsing("Modify Cube Gravity", |ui| {
-                            for mut grav_scale in grav_scale.iter_mut() {
-                                ui.horizontal(|ui| {
-                                    ui.label("Current Gravity: ");
-                                    ui.add(egui::DragValue::new(&mut grav_scale.0).speed(0.001));
-                                });
-                                if ui.button("Mars Gravity").clicked() {
-                                    grav_scale.0 = 0.38;
-                                }
-                                if ui.button("Moon Gravity").clicked() {
-                                    grav_scale.0 = 0.165;
-                                }
-                                if ui.button("Venus Gravity").clicked() {
-                                    grav_scale.0 = 0.91;
-                                }
-                                if ui.button("Mercury Gravity").clicked() {
-                                    grav_scale.0 = 0.38;
-                                }
-                            }
-                        });
-
-                        // delete cube
-                        if ui.button("Delete").clicked() {
-                                commands.entity(entity).despawn();
-                        }
-                    });
-                }
-            }
-
-            ui.separator();
-            ui.label("Spawn Pyramids");
-            if ui.button("Spawn Pyramid").clicked() {
-                pyramid_counter.0 += 1;
-                let id = pyramid_counter.0;
-                let base_size = 1.0;
-                let height = 1.0;
-                let vertices = vec![
-                    Vec3::new(base_size / 2.0, 0.0, base_size / 2.0),
-                    Vec3::new(-base_size / 2.0, 0.0, base_size / 2.0),
-                    Vec3::new(-base_size / 2.0, 0.0, -base_size / 2.0),
-                    Vec3::new(base_size / 2.0, 0.0, -base_size / 2.0),
-                    Vec3::new(0.0, height, 0.0),
-                ];
-
-                let pyramid_collider = Collider::convex_hull(&vertices)
-                    .expect("Failed to create convex hull collider");
-
-                let pyramid_entity = commands.spawn((
-                    Mesh3d(pyramid.clone()),
-                    MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-                    Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
-                    Rotates,
-                    Velocity::default(),
-                    RigidBody::Fixed,
-                    pyramid_collider,
-                ))
-                .observe(update_material_on::<Pointer<Over>>(hover_matl.clone()))
-                .observe(update_material_on::<Pointer<Out>>(shape_matl.clone()))
-                .observe(move_on_drag::<Pointer<Click>>)
-                .insert(Restitution::coefficient(0.7))
-                .insert(GravityScale(1.0))
-                .id();
-
-                pyramid_map.0.insert(id, pyramid_entity);
-            }
-
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label("Pyramid Entities")
-            });
-            for (id, &entity) in pyramid_map.0.iter() {
-                if let Ok(mut transform) = query.get_mut(entity) {
-                    // grab pyramid information
-                    let mut x = transform.translation.x;
-                    let mut y = transform.translation.y;
-                    let mut z = transform.translation.z;
-                    let mut pos = transform.translation;
-
-                    // identify pyramid
-                    ui.collapsing(format!("Pyramid {}: ", id), |ui| {
-                        ui.collapsing("Modify Pyramid Position", |ui| {
-                            // modify x position
-                            ui.horizontal(|ui| {
-                                ui.label(format!("X Position: {}", x));
-                                ui.add(egui::DragValue::new(&mut x).speed(0.1));
-                                if ui.button("-").clicked() {
-                                    pos.x -= 1.0;
-                                }
-                                if ui.button("+").clicked() {
-                                    pos.x += 1.0;
-                                }
-                            });
-
-                            // modify y position
-                            ui.horizontal(|ui| {
-                                ui.label(format!("Y Position: {}", y));
-                                ui.add(egui::DragValue::new(&mut y).speed(0.1));
-                                if ui.button("-").clicked() {
-                                    pos.y -= 1.0;
-                                }
-                                if ui.button("+").clicked() {
-                                    pos.y += 1.0;
-                                }
-                            });
-
-                            // modify z position
-                            ui.horizontal(|ui| {
-                                ui.label(format!("Z Position: {}", z));
-                                ui.add(egui::DragValue::new(&mut z).speed(0.1));
-                                if ui.button("-").clicked() {
-                                    pos.z -= 1.0;
-                                }
-                                if ui.button("+").clicked() {
-                                    pos.z += 1.0;
-                                }
-                            });
-
-                            // reset pyramid position (0.0, 10.0, 0.0)
-                            if ui.button("Reset Pyramid Position").clicked() {
-                                pos.x = 0.0;
-                                pos.y = 10.0;
-                                pos.z = 0.0;
-                            }
-
-                            transform.translation = pos;
-                        });
-
-                        ui.collapsing("Modify Pyramid Gravity", |ui| {
-                            for mut grav_scale in grav_scale.iter_mut() {
-                                ui.horizontal(|ui| {
-                                    ui.label("Current Gravity: ");
-                                    ui.add(egui::DragValue::new(&mut grav_scale.0).speed(0.001));
-                                });
-                                if ui.button("Mars Gravity").clicked() {
-                                    grav_scale.0 = 0.38;
-                                }
-                                if ui.button("Moon Gravity").clicked() {
-                                    grav_scale.0 = 0.165;
-                                }
-                                if ui.button("Venus Gravity").clicked() {
-                                    grav_scale.0 = 0.91;
-                                }
-                                if ui.button("Mercury Gravity").clicked() {
-                                    grav_scale.0 = 0.38;
-                                }
-                            }
-                        });
-
-                        // delete pyramid
-                        if ui.button("Delete").clicked() {
-                                commands.entity(entity).despawn();
-                        }
-                    });
-                }
-            }
-
-            ui.separator();
-            ui.label("Spawn Spheres");
-            if ui.button("Spawn Sphere").clicked() {
-                sphere_counter.0 += 1;
-                let id = sphere_counter.0;
-
-                let sphere_entity = commands.spawn((
-                    Mesh3d(sphere.clone()),
-                    MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-                    Transform::from_translation(Vec3::new(0.0, 10.0, 0.0)),
-                    Rotates,
-                    Velocity::default(),
-                    RigidBody::Fixed,
-                    Collider::ball(0.25),
-                    SphereId(id),
-                ))
-                .observe(update_material_on::<Pointer<Over>>(hover_matl.clone()))
-                .observe(update_material_on::<Pointer<Out>>(shape_matl.clone()))
-                .observe(move_on_drag::<Pointer<Click>>)
-                .insert(Restitution::coefficient(0.7))
-                .insert(GravityScale(1.0))
-                .id();
-
-                sphere_map.0.insert(id, sphere_entity);
-            }
-
-            ui.separator();
-            ui.label("Sphere Entities");
-            for (id, &entity) in sphere_map.0.iter() {
-                if let Ok(mut transform) = query.get_mut(entity) {
-                    // grab sphere information
-                    let mut x = transform.translation.x;
-                    let mut y = transform.translation.y;
-                    let mut z = transform.translation.z;
-                    let mut pos = transform.translation;
-
-                    // identify sphere
-                    ui.collapsing(format!("Sphere {}: ", id), |ui| {
-                        ui.collapsing("Modify Sphere Position", |ui| {
-                            // modify x position
-                            ui.horizontal(|ui| {
-                                ui.label(format!("X Position: {}", x));
-                                ui.add(egui::DragValue::new(&mut x).speed(0.1));
-                                if ui.button("-").clicked() {
-                                    pos.x -= 1.0;
-                                }
-                                if ui.button("+").clicked() {
-                                    pos.x += 1.0;
-                                }
-                            });
-
-                            // modify y position
-                            ui.horizontal(|ui| {
-                                ui.label(format!("Y Position: {}", y));
-                                ui.add(egui::DragValue::new(&mut y).speed(0.1));
-                                if ui.button("-").clicked() {
-                                    pos.y -= 1.0;
-                                }
-                                if ui.button("+").clicked() {
-                                    pos.y += 1.0;
-                                }
-                            });
-
-                            // modify z position
-                            ui.horizontal(|ui| {
-                                ui.label(format!("Z Position: {}", z));
-                                ui.add(egui::DragValue::new(&mut z).speed(0.1));
-                                if ui.button("-").clicked() {
-                                    pos.z -= 1.0;
-                                }
-                                if ui.button("+").clicked() {
-                                    pos.z += 1.0;
-                                }
-                            });
-
-                            // reset sphere position (0.0, 10.0, 0.0)
-                            if ui.button("Reset Sphere Position").clicked() {
-                                pos.x = 0.0;
-                                pos.y = 10.0;
-                                pos.z = 0.0;
-                            }
-
-                            transform.translation = pos;
-                        });
-
-                        ui.collapsing("Modify Sphere Gravity", |ui| {
-                            for mut grav_scale in grav_scale.iter_mut() {
-                                ui.horizontal(|ui| {
-                                    ui.label("Current Gravity: ");
-                                    ui.add(egui::DragValue::new(&mut grav_scale.0).speed(0.001));
-                                });
-                                if ui.button("Mars Gravity").clicked() {
-                                    grav_scale.0 = 0.38;
-                                }
-                                if ui.button("Moon Gravity").clicked() {
-                                    grav_scale.0 = 0.165;
-                                }
-                                if ui.button("Venus Gravity").clicked() {
-                                    grav_scale.0 = 0.91;
-                                }
-                                if ui.button("Mercury Gravity").clicked() {
-                                    grav_scale.0 = 0.38;
-                                }
-                            }
-                        });
-
-                        // delete sphere
-                        if ui.button("Delete").clicked() {
-                                commands.entity(entity).despawn();
-                        }
-                    });
-                }
-            }
-        });
-        drag_state.is_dragging = true;
-    Ok(())
+fn spawn_cubes(
+    mut commands: Commands,
+    cube_handle: Res<CubeSceneHandle>,
+) {
+    commands.spawn((
+        SceneRoot(
+            cube_handle.0.clone(),
+        ),
+        Transform::from_xyz(0.0, 10.0, 0.0),
+    )).observe(on_cube_scene_spawn);
 }
-
-// Update system - rotates the cube each frame
-// fn rotate_cube(mut query: Query<&mut Transform, With<Rotates>>, time: Res<Time>) {
-//     for mut transform in &mut query {
-//         transform.rotate_y(1.0 * time.delta_secs());
-//     }
-// }
