@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use bevy::{ color::palettes::{css::SILVER, tailwind::{CYAN_300, PINK_100, RED_500}}, input::mouse::{MouseMotion, MouseWheel}, picking::pointer::PointerInteraction, prelude::*, render::mesh::{Indices, PrimitiveTopology}};
+use avian3d::{PhysicsPlugins, prelude::PhysicsDebugPlugin};
+use bevy::{ color::palettes::{css::SILVER, tailwind::{CYAN_300, PINK_100, RED_500}}, input::mouse::{MouseMotion, MouseWheel}, picking::pointer::PointerInteraction, prelude::*};
 use bevy_asset::RenderAssetUsages;
 use bevy_egui::{egui, input::EguiWantsInput, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
-use bevy_rapier3d::{na::Translation, prelude::*};
 
 #[derive(Component)]
 enum ExampleViewports {
@@ -109,7 +109,13 @@ fn main() {
     // Entry point of the application
     App::new()
         // Load all default Bevy plugins (window, renderer, input, etc.)
-        .add_plugins((DefaultPlugins, EguiPlugin::default(), MeshPickingPlugin))
+        .add_plugins((
+            DefaultPlugins,
+            PhysicsPlugins::default(),
+            PhysicsDebugPlugin::default(),
+            EguiPlugin::default(),
+            MeshPickingPlugin,
+        ))
         // Insert camera controller settings
         .insert_resource(CameraSettings {
             speed: 8.0,
@@ -117,8 +123,6 @@ fn main() {
             zoom_speed: 5.0,
         })
         // Insert physics settings
-        .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
-        .add_plugins(RapierDebugRenderPlugin::default().disabled())
         .insert_resource(CameraOrientation::default())
         .insert_resource(CubeCounter::default())
         .insert_resource(CubeMap::default())
