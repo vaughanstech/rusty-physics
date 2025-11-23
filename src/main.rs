@@ -55,6 +55,16 @@ enum BRigidBody {
     Dynamic,
 }
 
+#[derive(Resource)]
+struct DebugRenderState {
+    debug_render: bool,
+}
+impl Default for DebugRenderState {
+    fn default() -> Self {
+        Self { debug_render: false }
+    }
+}
+
 fn main() {
     App::new()
         .add_plugins((
@@ -68,12 +78,14 @@ fn main() {
             zoom_spped: 5.0,
         })
         .insert_resource(CameraOrientation::default())
+        .insert_resource(DebugRenderState::default())
         .add_systems(Startup, (setup, setup_camera))
         .add_systems(Update, (
             spawn_cubes.run_if(on_timer(Duration::from_secs(1))),
             keyboard_movement,
             mouse_look,
-            mouse_scroll
+            mouse_scroll,
+            toggle_debug_render_state,
         ))
         .run();
 }
@@ -217,6 +229,19 @@ fn mouse_scroll(
     }
 }
 
+fn toggle_debug_render_state(
+    mut debug_render_state: ResMut<DebugRenderState>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyQ) {
+        if debug_render_state.debug_render == false {
+            debug_render_state.debug_render = true;
+        } else {
+            debug_render_state.debug_render = false;
+        }
+    }
+}
+
 /// Process all entities within an newly loaded scene instance
 /// and apply physics components based on GLTF extras
 fn process_gltf_descendants(
@@ -224,6 +249,7 @@ fn process_gltf_descendants(
     mut commands: Commands,
     children: Query<&Children>,
     extras: &Query<&GltfMeshExtras>,
+    debug_render_state: Res<DebugRenderState>,
 ) {
     info!("Processing scene descendants for entity {:?}", trigger_entity);
 
@@ -259,7 +285,11 @@ fn process_gltf_descendants(
                         BRigidBody::Static => RigidBody::Static,
                         BRigidBody::Dynamic => RigidBody::Dynamic,
                     },
-                    Collider::cuboid(scaled_size.x, scaled_size.y, scaled_size.z)
+                    Collider::cuboid(scaled_size.x, scaled_size.y, scaled_size.z),
+                    match debug_render_state.debug_render {
+                        true => DebugRender::default(),
+                        false => DebugRender::default().without_collider(),
+                    }
                 ));
             }
         }
@@ -272,6 +302,7 @@ fn on_level_scene_spawn(
     commands: Commands,
     children: Query<&Children>,
     extras: Query<&GltfMeshExtras>,
+    debug_render_state: Res<DebugRenderState>,
 ) {
     info!("LEVEL SCENE READY: Running physics setup for the main level. (ONE TIME)");
     process_gltf_descendants(
@@ -279,6 +310,7 @@ fn on_level_scene_spawn(
         commands,
         children,
         &extras,
+        debug_render_state,
     );
 }
 
@@ -288,6 +320,7 @@ fn on_cube_scene_spawn(
     commands: Commands,
     children: Query<&Children>,
     extras: Query<&GltfMeshExtras>,
+    debug_render_state: Res<DebugRenderState>,
 ) {
     info!("CUBE SCENE READY: Running physics setup for a new cube.");
     process_gltf_descendants(
@@ -295,6 +328,7 @@ fn on_cube_scene_spawn(
         commands,
         children,
         &extras,
+        debug_render_state,
     );
 }
 
