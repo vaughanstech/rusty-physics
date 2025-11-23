@@ -1,7 +1,7 @@
 use std::{time::Duration};
 
 use avian3d::{PhysicsPlugins, prelude::*};
-use bevy::{DefaultPlugins, gltf::GltfMeshExtras, prelude::*, scene::SceneInstanceReady, time::common_conditions::on_timer };
+use bevy::{DefaultPlugins, gltf::GltfMeshExtras, input::mouse::{MouseMotion, MouseWheel}, prelude::*, scene::SceneInstanceReady, time::common_conditions::on_timer };
 use bevy_asset::{AssetServer, Handle};
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,22 @@ enum ExampleViewports {
 
 #[derive(Resource)]
 struct CubeSceneHandle(Handle<Scene>);
+
+#[derive(Component)]
+struct FlyCamera;
+
+#[derive(Resource)]
+struct CameraSettings {
+    speed: f32, // camera movement speed
+    sensitivity: f32, // mouse movement sensitivity
+    zoom_spped: f32, // mouse scroll sensitivity
+}
+
+#[derive(Resource, Default)]
+struct CameraOrientation {
+    yaw: f32,
+    pitch: f32,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct BMeshExtras {
@@ -46,8 +62,19 @@ fn main() {
             PhysicsPlugins::default(),
             PhysicsDebugPlugin::default(),
         ))
-        .add_systems(Startup, setup)
-        .add_systems(Update, spawn_cubes.run_if(on_timer(Duration::from_secs(1))))
+        .insert_resource(CameraSettings {
+            speed: 8.0,
+            sensitivity: 0.002,
+            zoom_spped: 5.0,
+        })
+        .insert_resource(CameraOrientation::default())
+        .add_systems(Startup, (setup, setup_camera))
+        .add_systems(Update, (
+            spawn_cubes.run_if(on_timer(Duration::from_secs(1))),
+            keyboard_movement,
+            mouse_look,
+            mouse_scroll
+        ))
         .run();
 }
 
@@ -55,13 +82,6 @@ fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
-    let transform = Transform::from_xyz(20.0, 10.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y);
-    // Camera: positioned above and behind the origin, looking down
-    commands.spawn((
-        Camera3d::default(),
-        ExampleViewports::_PerspectiveMain,
-        transform,
-    ));
 
     // Light: bright white light
     commands.spawn((
@@ -85,6 +105,116 @@ fn setup(
         )
     ))
     .observe(on_level_scene_spawn);
+}
+
+/// Initializes 3D camera
+fn setup_camera(
+    mut commands: Commands,
+) {
+    let transform = Transform::from_xyz(20.0, 10.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y);
+    // Camera: initially positioned above and looking at origin
+    commands.spawn((
+        Camera3d::default(),
+        ExampleViewports::_PerspectiveMain,
+        transform,
+        FlyCamera,
+    ));
+}
+
+/// Handles keyboard input for movement
+fn keyboard_movement(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    settings: Res<CameraSettings>,
+    mut query: Query<&mut Transform, With<FlyCamera>>,
+) {
+    for mut transform in &mut query {
+        let mut direction = Vec3::ZERO;
+
+        // local forward and right vectors relative to camera
+        let forward = transform.forward();
+        let right = transform.right();
+
+        // WASD movement
+        if keyboard_input.pressed(KeyCode::KeyW) {
+            direction += *forward;
+        }
+        if keyboard_input.pressed(KeyCode::KeyS) {
+            direction -= *forward;
+        }
+        if keyboard_input.pressed(KeyCode::KeyA) {
+            direction -= *right;
+        }
+        if keyboard_input.pressed(KeyCode::KeyD) {
+            direction += *right;
+        }
+
+        // Up/Down
+        if keyboard_input.pressed(KeyCode::Space) {
+            direction += Vec3::Y;
+        }
+        if keyboard_input.pressed(KeyCode::ShiftLeft) {
+            direction -= Vec3::Y;
+        }
+
+        if direction.length_squared() > 0.0 {
+            direction = direction.normalize();
+            transform.translation += direction * settings.speed * time.delta_secs();
+        }
+    }
+}
+
+/// Handles mouse movement for looking around
+fn mouse_look(
+    mut mouse_events: MessageReader<MouseMotion>,
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    settings: Res<CameraSettings>,
+    mut orientation: ResMut<CameraOrientation>,
+    mut query: Query<&mut Transform, With<FlyCamera>>,
+) {
+    let mut delta = Vec2::ZERO;
+    if mouse_input.pressed(MouseButton::Middle) {
+        for event in mouse_events.read() {
+            delta += event.delta;
+        }
+    }
+
+    if delta.length_squared() == 0.0 {
+        return;
+    }
+
+    // update yaw and pitch
+    orientation.yaw -= delta.x * settings.sensitivity;
+    orientation.pitch -= delta.y * settings.sensitivity;
+    orientation.pitch = orientation.pitch.clamp(-1.54, 1.54); // prevent flipping
+
+    // apply rotation to camera transformation
+    for mut transform in &mut query {
+        transform.rotation = Quat::from_axis_angle(Vec3::Y, orientation.yaw) * Quat::from_axis_angle(Vec3::X, orientation.pitch);
+    }
+}
+
+/// Handles mouse scroll wheel for zooming in/out of camera
+fn mouse_scroll(
+    mut scroll_events: MessageReader<MouseWheel>,
+    time: Res<Time>,
+    settings: Res<CameraSettings>,
+    mut query: Query<&mut Transform, With<FlyCamera>>,
+) {
+    let mut scroll_delta = 0.0;
+    for event in scroll_events.read() {
+        // scroll up = zoom in
+        scroll_delta += event.y
+    }
+
+    if scroll_delta.abs() < f32::EPSILON {
+        return;
+    }
+
+    for mut transform in &mut query {
+        let forward = transform.forward();
+        transform.translation += forward * scroll_delta * settings.zoom_spped * time.delta_secs();
+    }
 }
 
 /// Process all entities within an newly loaded scene instance
