@@ -1,8 +1,9 @@
 use std::{time::Duration};
 
 use avian3d::{PhysicsPlugins, prelude::*};
-use bevy::{DefaultPlugins, gltf::GltfMeshExtras, input::mouse::{MouseMotion, MouseWheel}, prelude::*, scene::SceneInstanceReady, time::common_conditions::on_timer };
+use bevy::{DefaultPlugins, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, gltf::GltfMeshExtras, input::mouse::{MouseMotion, MouseWheel}, prelude::*, scene::SceneInstanceReady, time::common_conditions::on_timer };
 use bevy_asset::{AssetServer, Handle};
+use bevy_framepace::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Component)]
@@ -27,7 +28,12 @@ struct FlyCamera;
 struct CameraSettings {
     speed: f32, // camera movement speed
     sensitivity: f32, // mouse movement sensitivity
-    zoom_spped: f32, // mouse scroll sensitivity
+    zoom_speed: f32, // mouse scroll sensitivity
+}
+
+#[derive(Resource)]
+struct SetMaxFps {
+    fps: f64,
 }
 
 #[derive(Resource, Default)]
@@ -55,17 +61,25 @@ enum BRigidBody {
     Dynamic,
 }
 
+#[derive(Component)]
+struct FpsText;
+
 fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
+            FrameTimeDiagnosticsPlugin::default(),
+            FramepacePlugin,
             PhysicsPlugins::default(),
             PhysicsDebugPlugin::default(),
         ))
         .insert_resource(CameraSettings {
             speed: 8.0,
             sensitivity: 0.002,
-            zoom_spped: 5.0,
+            zoom_speed: 30.0,
+        })
+        .insert_resource(SetMaxFps {
+            fps: 120.0,
         })
         .insert_resource(CameraOrientation::default())
         .add_systems(Startup, (setup, setup_camera))
@@ -75,6 +89,8 @@ fn main() {
             mouse_look,
             mouse_scroll,
             toggle_debug_render_state,
+            set_max_fps,
+            fps_counter,
         ))
         .run();
 }
@@ -106,6 +122,46 @@ fn setup(
         )
     ))
     .observe(on_level_scene_spawn);
+
+    commands.spawn((
+        Text::new("FPS: "),
+        TextFont {
+            font_size: 42.0,
+            ..default()
+        },
+    ))
+    .with_child((
+        TextSpan::default(),
+        TextFont {
+            font_size: 33.0,
+            ..Default::default()
+        },
+        TextColor(Color::srgb(0.0, 1.0, 0.0)),
+        FpsText,
+    ));
+}
+
+/// Set the max framerate limit
+fn set_max_fps(
+    mut settings: ResMut<FramepaceSettings>,
+    fps_limit: Res<SetMaxFps>
+) {
+    settings.limiter = Limiter::from_framerate(fps_limit.fps);
+}
+
+/// Tracks frames per second
+fn fps_counter(
+    diagnostics: Res<DiagnosticsStore>,
+    mut query: Query<&mut TextSpan, With<FpsText>>,
+) {
+    for mut span in &mut query {
+        if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS)
+            && let Some(value) = fps.smoothed() 
+        {
+            // update the value of the second section
+            **span = format!("{value:.2}");
+        }
+    }
 }
 
 /// Initializes 3D camera
@@ -233,7 +289,7 @@ fn mouse_scroll(
 
     for mut transform in &mut query {
         let forward = transform.forward();
-        transform.translation += forward * scroll_delta * settings.zoom_spped * time.delta_secs();
+        transform.translation += forward * scroll_delta * settings.zoom_speed * time.delta_secs();
     }
 }
 
