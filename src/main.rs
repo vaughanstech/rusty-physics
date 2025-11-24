@@ -134,7 +134,7 @@ fn keyboard_movement(
         let mut direction = Vec3::ZERO;
 
         // local forward and right vectors relative to camera
-        let forward = transform.forward();
+        let forward = -transform.local_z();
         let right = transform.right();
 
         // WASD movement
