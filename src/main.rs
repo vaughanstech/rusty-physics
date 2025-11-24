@@ -111,8 +111,26 @@ fn setup(
 /// Initializes 3D camera
 fn setup_camera(
     mut commands: Commands,
+    mut orientation: ResMut<CameraOrientation>,
 ) {
-    let transform = Transform::from_xyz(20.0, 10.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y);
+    let position = Vec3::new(0.0, 10.0, 20.0);
+
+    // Initializing Camera Orientation:
+    // - Calculate yaw and pitch from the camera's starting Transform and use those values to initialize the CameraOrientation resource
+
+    // Yaw (Y-axis rotation, horizontal look)
+    orientation.yaw = 0.0;
+
+    // Pitch (X-axis rotation, vertical look)
+    // let horizontal_length = Vec2::new(direction.x, direction.z).length();
+    orientation.pitch = 0.0;
+
+    // Construct the rotation from the calculated yaw and pitch
+    let rotation = Quat::from_axis_angle(Vec3::Y, orientation.yaw) * Quat::from_axis_angle(Vec3::X, orientation.pitch);
+
+    // Create the initial transform using the calculated position
+    let transform = Transform::from_translation(position).with_rotation(rotation);
+    
     // Camera: initially positioned above and looking at origin
     commands.spawn((
         Camera3d::default(),
