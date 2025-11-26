@@ -1,8 +1,8 @@
 use std::{time::Duration};
 
 use avian3d::{PhysicsPlugins, prelude::*};
-use bevy::{DefaultPlugins, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, gltf::GltfMeshExtras, input::mouse::{MouseMotion, MouseWheel}, prelude::*, scene::SceneInstanceReady, time::common_conditions::on_timer };
-use bevy_asset::{AssetServer, Handle};
+use bevy::{DefaultPlugins, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, gltf::GltfMeshExtras, input::mouse::{MouseMotion, MouseWheel}, prelude::*, scene::SceneInstanceReady };
+use bevy_asset::{AssetServer};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_framepace::*;
 use serde::{Deserialize, Serialize};
@@ -18,9 +18,6 @@ enum ExampleViewports {
     _OrthographicMoving,
     _OrthographicControl,
 }
-
-#[derive(Resource)]
-struct CubeSceneHandle(Handle<Scene>);
 
 #[derive(Component)]
 struct FlyCamera;
@@ -49,13 +46,16 @@ struct BMeshExtras {
     rigid_body: BRigidBody,
     cube_size: Option<Vec3>,
     radius: Option<f32>,
+    height: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 enum BCollider {
     TrimeshFromMesh,
+    ConvexHull,
     Cuboid,
     Sphere,
+    Cylinder,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -102,7 +102,6 @@ fn main() {
 
 fn setup(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
 ) {
 
     // Light: bright white light
@@ -113,12 +112,6 @@ fn setup(
         },
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
-
-    // let cube_scene_handle = asset_server.load(
-    //     GltfAssetLabel::Scene(0)
-    //         .from_asset("shapes.glb"),
-    // );
-    // commands.insert_resource(CubeSceneHandle(cube_scene_handle));
 
     commands.spawn((
         Text::new("FPS: "),
@@ -334,6 +327,16 @@ fn process_gltf_descendants(
                     DebugRender::default().with_collider_color(Color::srgb(0.0, 0.0, 1.0)),
                 ));
             }
+            BCollider::ConvexHull => {
+                commands.entity(entity).insert((
+                    match data.rigid_body {
+                        BRigidBody::Static => RigidBody::Static,
+                        BRigidBody::Dynamic => RigidBody::Dynamic,
+                    },
+                    ColliderConstructor::ConvexHullFromMesh,
+                    DebugRender::default().with_collider_color(Color::srgb(1.0, 1.0, 1.0)),
+                ));
+            }
             BCollider::Cuboid => {
                 let size = data.cube_size.expect(
                     "Cuboid collider must have cube_size",
@@ -362,6 +365,22 @@ fn process_gltf_descendants(
                     DebugRender::default().with_collider_color(Color::srgb(1.0, 0.0, 0.0)),
                 ));
             }
+            BCollider::Cylinder => {
+                let radius = data.radius.expect(
+                    "Cylinder collider must have radius"
+                );
+                let height = data.height.expect(
+                    "Cylinder collider must have height"
+                );
+                commands.entity(entity).insert((
+                    match data.rigid_body {
+                        BRigidBody::Static => RigidBody::Static,
+                        BRigidBody::Dynamic => RigidBody::Dynamic,
+                    },
+                    Collider::cylinder(radius, height*2.0),
+                    DebugRender::default().with_collider_color(Color::srgb(1.0, 0.0, 1.0)),
+                ));
+            }
         }
     }
 }
@@ -383,13 +402,13 @@ fn on_level_scene_spawn(
 }
 
 /// A dedicated observer system for the repetitive cube spawns (Scene 0).
-fn on_cube_scene_spawn(
+fn on_shape_scene_spawn(
     trigger: On<SceneInstanceReady>,
     commands: Commands,
     children: Query<&Children>,
     extras: Query<&GltfMeshExtras>,
 ) {
-    info!("CUBE SCENE READY: Running physics setup for a new cube.");
+    info!("SHAPE SCENE READY: Running physics setup for a new shape.");
     process_gltf_descendants(
         trigger.entity,
         commands,
@@ -419,6 +438,9 @@ enum MapTag {
 enum ShapeTag {
     Cube,
     Sphere,
+    Cone,
+    Torus,
+    Cylinder,
 }
 fn interactive_menu(
     mut contexts: EguiContexts,
@@ -473,30 +495,60 @@ fn interactive_menu(
             ui.separator();
             ui.label("Spawn Shapes");
             ui.horizontal(|ui| {
-                for tag in [ShapeTag::Cube, ShapeTag::Sphere] {
+                for tag in [ShapeTag::Cube, ShapeTag::Sphere, ShapeTag::Cone, ShapeTag::Torus, ShapeTag::Cylinder] {
                     let label = format!("{:?}", tag);
                     if ui.button(label).clicked() {
                         match tag {
                             ShapeTag::Cube => commands.spawn((
                                 SceneRoot(
                                     asset_server.load(
-                                        GltfAssetLabel::Scene(0)
+                                        GltfAssetLabel::Scene(1)
                                             .from_asset("shapes.glb"),   
                                 )),
                                 Transform::from_xyz(0.0, 10.0, 0.0),
                                 ShapeTag::Cube,
                             ))
-                            .observe(on_cube_scene_spawn),
+                            .observe(on_shape_scene_spawn),
                             ShapeTag::Sphere => commands.spawn((
                                 SceneRoot(
                                     asset_server.load(
-                                        GltfAssetLabel::Scene(1)
+                                        GltfAssetLabel::Scene(3)
                                         .from_asset("shapes.glb"),
                                 )),
                                 Transform::from_xyz(0.0, 10.0, 0.0),
                                 ShapeTag::Sphere,
                             ))
-                            .observe(on_cube_scene_spawn),
+                            .observe(on_shape_scene_spawn),
+                            ShapeTag::Cone => commands.spawn((
+                                SceneRoot(
+                                    asset_server.load(
+                                        GltfAssetLabel::Scene(0)
+                                        .from_asset("shapes.glb"),
+                                )),
+                                Transform::from_xyz(0.0, 10.0, 0.0),
+                                ShapeTag::Cone,
+                            ))
+                            .observe(on_shape_scene_spawn),
+                            ShapeTag::Torus => commands.spawn((
+                                SceneRoot(
+                                    asset_server.load(
+                                        GltfAssetLabel::Scene(4)
+                                        .from_asset("shapes.glb"),
+                                    )),
+                                Transform::from_xyz(0.0, 10.0, 0.0),
+                                ShapeTag::Torus,
+                            ))
+                            .observe(on_shape_scene_spawn),
+                            ShapeTag::Cylinder => commands.spawn((
+                                SceneRoot(
+                                    asset_server.load(
+                                        GltfAssetLabel::Scene(2)
+                                        .from_asset("shapes.glb"),
+                                )),
+                                Transform::from_xyz(0.0, 10.0, 0.0),
+                                ShapeTag::Cylinder,
+                            ))
+                            .observe(on_shape_scene_spawn)
                         };
                     }
                 }
