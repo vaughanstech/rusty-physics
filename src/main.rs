@@ -96,6 +96,7 @@ fn main() {
             toggle_debug_render_state,
             set_max_fps,
             fps_counter,
+            draw_cursor,
         ))
         .run();
 }
@@ -433,6 +434,26 @@ fn on_shape_scene_spawn(
     );
 }
 
+#[derive(Component)]
+struct Ground;
+
+fn draw_cursor(
+    camera_query: Single<(&Camera, &GlobalTransform)>,
+    ground: Single<&GlobalTransform, With<Ground>>,
+    window: Single<&Window>,
+    mut gizmos: Gizmos,
+) {
+    let (camera, camera_transform) = *camera_query;
+
+    if let Some(cursor_position) = window.cursor_position()
+        && let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position)
+        {
+            let point = ray.get_point(5.0);
+
+            gizmos.sphere(point, 0.1, Color::WHITE);
+        }
+}
+
 // fn spawn_cubes(
 //     mut commands: Commands,
 //     cube_handle: Res<CubeSceneHandle>,
@@ -497,6 +518,7 @@ fn interactive_menu(
                                         .from_asset("maps.glb"),
                                 )),
                                 MapTag::Flat,
+                                Ground,
                             ))
                             .observe(on_level_scene_spawn),
                             MapTag::Ramp => commands.spawn(
@@ -506,6 +528,7 @@ fn interactive_menu(
                                         .from_asset("maps.glb"),
                                 )),
                                 MapTag::Ramp,
+                                Ground,
                             ))
                             .observe(on_level_scene_spawn),
                         };
