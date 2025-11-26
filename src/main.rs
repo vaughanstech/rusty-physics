@@ -401,7 +401,23 @@ fn on_level_scene_spawn(
     );
 }
 
-/// A dedicated observer system for the repetitive cube spawns (Scene 0).
+/// A dedicated observer system for the repetitive structure spawns (Scene 0).
+fn on_structure_scene_spawn(
+    trigger: On<SceneInstanceReady>,
+    commands: Commands,
+    children: Query<&Children>,
+    extras: Query<&GltfMeshExtras>,
+) {
+    info!("STRUCTURE SCENE READY: Running physics setup for a new shape.");
+    process_gltf_descendants(
+        trigger.entity,
+        commands,
+        children,
+        &extras,
+    );
+}
+
+/// A dedicated observer system for the repetitive shape spawns (Scene 0).
 fn on_shape_scene_spawn(
     trigger: On<SceneInstanceReady>,
     commands: Commands,
@@ -442,12 +458,18 @@ enum ShapeTag {
     Torus,
     Cylinder,
 }
+
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum StructureTag {
+    CubeTower
+}
 fn interactive_menu(
     mut contexts: EguiContexts,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     maps: Query<(Entity, &MapTag)>,
     shapes: Query<(Entity, &ShapeTag)>,
+    structures: Query<(Entity, &StructureTag)>,
 ) -> Result {
     egui::Window::new("Rusty Physics Interactive Menu")
         .resizable(true)
@@ -559,6 +581,32 @@ fn interactive_menu(
                     commands.entity(entity).despawn();
                 }
             };
+
+            ui.separator();
+            ui.label("Spawn Structures");
+            ui.horizontal(|ui| {
+                for tag in [StructureTag::CubeTower] {
+                    let label = format!("{:?}", tag);
+                    if ui.button(label).clicked() {
+                        for (entity, _) in structures.iter() {
+                            commands.entity(entity).despawn();
+                        }
+
+                        match tag {
+                            StructureTag::CubeTower => commands.spawn((
+                                SceneRoot(
+                                    asset_server.load(
+                                        GltfAssetLabel::Scene(0)
+                                        .from_asset("structures.glb"),
+                                )),
+                                Transform::from_xyz(0.0, 0.1, 0.0),
+                                StructureTag::CubeTower,
+                            ))
+                            .observe(on_structure_scene_spawn),
+                        };
+                    }
+                }
+            });
         });
     Ok(())
 }
