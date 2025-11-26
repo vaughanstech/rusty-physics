@@ -3,6 +3,7 @@ use std::{time::Duration};
 use avian3d::{PhysicsPlugins, prelude::*};
 use bevy::{DefaultPlugins, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, gltf::GltfMeshExtras, input::mouse::{MouseMotion, MouseWheel}, prelude::*, scene::SceneInstanceReady, time::common_conditions::on_timer };
 use bevy_asset::{AssetServer, Handle};
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_framepace::*;
 use serde::{Deserialize, Serialize};
 
@@ -47,12 +48,14 @@ struct BMeshExtras {
     collider: BCollider,
     rigid_body: BRigidBody,
     cube_size: Option<Vec3>,
+    radius: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 enum BCollider {
     TrimeshFromMesh,
     Cuboid,
+    Sphere,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,6 +75,7 @@ fn main() {
             FramepacePlugin,
             PhysicsPlugins::default(),
             PhysicsDebugPlugin::default(),
+            EguiPlugin::default(),
         ))
         .insert_resource(CameraSettings {
             speed: 8.0,
@@ -83,8 +87,9 @@ fn main() {
         })
         .insert_resource(CameraOrientation::default())
         .add_systems(Startup, (setup, setup_camera))
+        .add_systems(EguiPrimaryContextPass, interactive_menu)
         .add_systems(Update, (
-            spawn_cubes.run_if(on_timer(Duration::from_secs(1))),
+            // spawn_cubes.run_if(on_timer(Duration::from_secs(1))),
             keyboard_movement,
             mouse_look,
             mouse_scroll,
@@ -109,19 +114,11 @@ fn setup(
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
 
-    let cube_scene_handle = asset_server.load(
-        GltfAssetLabel::Scene(0)
-            .from_asset("shapes.glb"),
-    );
-    commands.insert_resource(CubeSceneHandle(cube_scene_handle));
-
-    commands.spawn(SceneRoot(
-        asset_server.load(
-            GltfAssetLabel::Scene(0)
-                .from_asset("maps.glb"),
-        )
-    ))
-    .observe(on_level_scene_spawn);
+    // let cube_scene_handle = asset_server.load(
+    //     GltfAssetLabel::Scene(0)
+    //         .from_asset("shapes.glb"),
+    // );
+    // commands.insert_resource(CubeSceneHandle(cube_scene_handle));
 
     commands.spawn((
         Text::new("FPS: "),
@@ -352,6 +349,19 @@ fn process_gltf_descendants(
                     DebugRender::default().with_collider_color(Color::srgb(0.0, 1.0, 0.0)),
                 ));
             }
+            BCollider::Sphere => {
+                let size = data.radius.expect(
+                    "Sphere collider must have sphere_radius"
+                );
+                commands.entity(entity).insert((
+                    match data.rigid_body {
+                        BRigidBody::Static => RigidBody::Static,
+                        BRigidBody::Dynamic => RigidBody::Dynamic,
+                    },
+                    Collider::sphere(size),
+                    DebugRender::default().with_collider_color(Color::srgb(1.0, 0.0, 0.0)),
+                ));
+            }
         }
     }
 }
@@ -388,14 +398,115 @@ fn on_cube_scene_spawn(
     );
 }
 
-fn spawn_cubes(
+// fn spawn_cubes(
+//     mut commands: Commands,
+//     cube_handle: Res<CubeSceneHandle>,
+// ) {
+//     commands.spawn((
+//         SceneRoot(
+//             cube_handle.0.clone(),
+//         ),
+//         Transform::from_xyz(0.0, 10.0, 0.0),
+//     )).observe(on_cube_scene_spawn);
+// }
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum MapTag {
+    Flat,
+    Ramp,
+}
+
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum ShapeTag {
+    Cube,
+    Sphere,
+}
+fn interactive_menu(
+    mut contexts: EguiContexts,
     mut commands: Commands,
-    cube_handle: Res<CubeSceneHandle>,
-) {
-    commands.spawn((
-        SceneRoot(
-            cube_handle.0.clone(),
-        ),
-        Transform::from_xyz(0.0, 10.0, 0.0),
-    )).observe(on_cube_scene_spawn);
+    asset_server: Res<AssetServer>,
+    maps: Query<(Entity, &MapTag)>,
+    shapes: Query<(Entity, &ShapeTag)>,
+) -> Result {
+    egui::Window::new("Rusty Physics Interactive Menu")
+        .resizable(true)
+        .vscroll(true)
+        .default_open(false)
+        .show(contexts.ctx_mut()?, |ui| {
+            ui.label("Keybinds:");
+            ui.label("Toggle Debug Renders: Q");
+
+            ui.separator();
+            ui.label("Spawn Maps");
+            ui.horizontal(|ui| {
+                for tag in [MapTag::Flat, MapTag::Ramp] {
+                    let label = format!("{:?}", tag);
+                    if ui.button(label).clicked() {
+                        for (entity, _) in maps.iter() {
+                            commands.entity(entity).despawn();
+                        }
+
+                        match tag {
+                            MapTag::Flat => commands.spawn(
+                                (SceneRoot(
+                                asset_server.load(
+                                    GltfAssetLabel::Scene(0)
+                                        .from_asset("maps.glb"),
+                                )),
+                                MapTag::Flat,
+                            ))
+                            .observe(on_level_scene_spawn),
+                            MapTag::Ramp => commands.spawn(
+                                (SceneRoot(
+                                asset_server.load(
+                                    GltfAssetLabel::Scene(1)
+                                        .from_asset("maps.glb"),
+                                )),
+                                MapTag::Ramp,
+                            ))
+                            .observe(on_level_scene_spawn),
+                        };
+                    }
+                }
+                
+            });
+
+            ui.separator();
+            ui.label("Spawn Shapes");
+            ui.horizontal(|ui| {
+                for tag in [ShapeTag::Cube, ShapeTag::Sphere] {
+                    let label = format!("{:?}", tag);
+                    if ui.button(label).clicked() {
+                        match tag {
+                            ShapeTag::Cube => commands.spawn((
+                                SceneRoot(
+                                    asset_server.load(
+                                        GltfAssetLabel::Scene(0)
+                                            .from_asset("shapes.glb"),   
+                                )),
+                                Transform::from_xyz(0.0, 10.0, 0.0),
+                                ShapeTag::Cube,
+                            ))
+                            .observe(on_cube_scene_spawn),
+                            ShapeTag::Sphere => commands.spawn((
+                                SceneRoot(
+                                    asset_server.load(
+                                        GltfAssetLabel::Scene(1)
+                                        .from_asset("shapes.glb"),
+                                )),
+                                Transform::from_xyz(0.0, 10.0, 0.0),
+                                ShapeTag::Sphere,
+                            ))
+                            .observe(on_cube_scene_spawn),
+                        };
+                    }
+                }
+
+            });
+            if ui.button("Delete Shapes").clicked() {
+                for (entity, _) in shapes.iter() {
+                    commands.entity(entity).despawn();
+                }
+            };
+        });
+    Ok(())
 }

@@ -6,16 +6,31 @@
   "scene": 0,
   "scenes": [
     {
+      "name": "flat-map",
+      "nodes": [
+        0
+      ]
+    },
+    {
       "name": "ramp-map",
       "nodes": [
-        0,
-        1
+        1,
+        2
       ]
     }
   ],
   "nodes": [
     {
       "mesh": 0,
+      "name": "Plane.001",
+      "scale": [
+        50,
+        1,
+        50
+      ]
+    },
+    {
+      "mesh": 1,
       "name": "Plane",
       "scale": [
         10,
@@ -24,7 +39,7 @@
       ]
     },
     {
-      "mesh": 1,
+      "mesh": 2,
       "name": "Cube",
       "scale": [
         5,
@@ -39,6 +54,20 @@
     }
   ],
   "materials": [
+    {
+      "doubleSided": true,
+      "name": "Material",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.031076546758413315,
+          0.02629820629954338,
+          0.18584120273590088,
+          1
+        ],
+        "metallicFactor": 0,
+        "roughnessFactor": 0.5
+      }
+    },
     {
       "doubleSided": true,
       "name": "Material.001",
@@ -74,7 +103,7 @@
         "collider": "TrimeshFromMesh",
         "rigid_body": "Static"
       },
-      "name": "PlaneMesh",
+      "name": "Plane",
       "primitives": [
         {
           "attributes": {
@@ -88,7 +117,11 @@
       ]
     },
     {
-      "name": "CubeMesh",
+      "extras": {
+        "collider": "TrimeshFromMesh",
+        "rigid_body": "Static"
+      },
+      "name": "PlaneMesh",
       "primitives": [
         {
           "attributes": {
@@ -96,8 +129,26 @@
             "NORMAL": 5,
             "TEXCOORD_0": 6
           },
-          "indices": 7,
+          "indices": 3,
           "material": 1
+        }
+      ]
+    },
+    {
+      "extras": {
+        "collider": "TrimeshFromMesh",
+        "rigid_body": "Static"
+      },
+      "name": "CubeMesh",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 7,
+            "NORMAL": 8,
+            "TEXCOORD_0": 9
+          },
+          "indices": 10,
+          "material": 2
         }
       ]
     }
@@ -140,6 +191,34 @@
     {
       "bufferView": 4,
       "componentType": 5126,
+      "count": 4,
+      "max": [
+        1,
+        0,
+        1
+      ],
+      "min": [
+        -1,
+        0,
+        -1
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 5,
+      "componentType": 5126,
+      "count": 4,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 6,
+      "componentType": 5126,
+      "count": 4,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 7,
+      "componentType": 5126,
       "count": 24,
       "max": [
         1,
@@ -154,19 +233,19 @@
       "type": "VEC3"
     },
     {
-      "bufferView": 5,
+      "bufferView": 8,
       "componentType": 5126,
       "count": 24,
       "type": "VEC3"
     },
     {
-      "bufferView": 6,
+      "bufferView": 9,
       "componentType": 5126,
       "count": 24,
       "type": "VEC2"
     },
     {
-      "bufferView": 7,
+      "bufferView": 10,
       "componentType": 5123,
       "count": 36,
       "type": "SCALAR"
@@ -199,33 +278,51 @@
     },
     {
       "buffer": 0,
-      "byteLength": 288,
+      "byteLength": 48,
       "byteOffset": 140,
       "target": 34962
     },
     {
       "buffer": 0,
+      "byteLength": 48,
+      "byteOffset": 188,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 32,
+      "byteOffset": 236,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
       "byteLength": 288,
-      "byteOffset": 428,
+      "byteOffset": 268,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 288,
+      "byteOffset": 556,
       "target": 34962
     },
     {
       "buffer": 0,
       "byteLength": 192,
-      "byteOffset": 716,
+      "byteOffset": 844,
       "target": 34962
     },
     {
       "buffer": 0,
       "byteLength": 72,
-      "byteOffset": 908,
+      "byteOffset": 1036,
       "target": 34963
     }
   ],
   "buffers": [
     {
       "uri": "maps_data.bin",
-      "byteLength": 980
+      "byteLength": 1108
     }
   ]
 }

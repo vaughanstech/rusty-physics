@@ -3,40 +3,40 @@
     "generator": "Khronos glTF Blender I/O v4.5.49",
     "version": "2.0"
   },
-  "scene": 0,
+  "scene": 1,
   "scenes": [
     {
       "name": "cube",
       "nodes": [
         0
       ]
+    },
+    {
+      "name": "sphere",
+      "nodes": [
+        1
+      ]
     }
   ],
   "nodes": [
     {
       "mesh": 0,
-      "name": "Cube",
-      "scale": [
-        0.5,
-        0.5,
-        0.5
-      ],
-      "translation": [
-        0,
-        0.5,
-        0
-      ]
+      "name": "Cube"
+    },
+    {
+      "mesh": 1,
+      "name": "Sphere"
     }
   ],
   "materials": [
     {
       "doubleSided": true,
-      "name": "Material",
+      "name": "Material.002",
       "pbrMetallicRoughness": {
         "baseColorFactor": [
-          0.800000011920929,
-          0.800000011920929,
-          0.800000011920929,
+          0.07404730468988419,
+          0.16481421887874603,
+          0.1523161083459854,
           1
         ],
         "metallicFactor": 0,
@@ -48,14 +48,14 @@
     {
       "extras": {
         "collider": "Cuboid",
-        "rigid_body": "Dynamic",
         "cube_size": [
           1,
           1,
           1
-        ]
+        ],
+        "rigid_body": "Dynamic"
       },
-      "name": "Cube",
+      "name": "Cube.002",
       "primitives": [
         {
           "attributes": {
@@ -63,7 +63,25 @@
             "NORMAL": 1,
             "TEXCOORD_0": 2
           },
-          "indices": 3,
+          "indices": 3
+        }
+      ]
+    },
+    {
+      "extras": {
+        "collider": "Sphere",
+        "rigid_body": "dynamic",
+        "radius": 1
+      },
+      "name": "Sphere",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 4,
+            "NORMAL": 5,
+            "TEXCOORD_0": 6
+          },
+          "indices": 7,
           "material": 0
         }
       ]
@@ -103,6 +121,40 @@
       "componentType": 5123,
       "count": 36,
       "type": "SCALAR"
+    },
+    {
+      "bufferView": 4,
+      "componentType": 5126,
+      "count": 559,
+      "max": [
+        0.9999997019767761,
+        1,
+        0.9999993443489075
+      ],
+      "min": [
+        -0.9999990463256836,
+        -1,
+        -1
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 5,
+      "componentType": 5126,
+      "count": 559,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 6,
+      "componentType": 5126,
+      "count": 559,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 7,
+      "componentType": 5123,
+      "count": 2880,
+      "type": "SCALAR"
     }
   ],
   "bufferViews": [
@@ -129,12 +181,36 @@
       "byteLength": 72,
       "byteOffset": 768,
       "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 6708,
+      "byteOffset": 840,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 6708,
+      "byteOffset": 7548,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 4472,
+      "byteOffset": 14256,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 5760,
+      "byteOffset": 18728,
+      "target": 34963
     }
   ],
   "buffers": [
     {
       "uri": "shapes_data.bin",
-      "byteLength": 840
+      "byteLength": 24488
     }
   ]
 }
