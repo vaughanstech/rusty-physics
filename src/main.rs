@@ -67,6 +67,15 @@ enum BRigidBody {
 #[derive(Component)]
 struct FpsText;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InteractionModeType {
+    Click,
+    Impulse,
+}
+
+#[derive(Resource)]
+struct InteractionMode(InteractionModeType);
+
 fn main() {
     App::new()
         .add_plugins((
@@ -86,6 +95,7 @@ fn main() {
             fps: 120.0,
         })
         .insert_resource(CameraOrientation::default())
+        .insert_resource(InteractionMode(InteractionModeType::Click))
         .add_systems(Startup, (setup, setup_camera))
         .add_systems(EguiPrimaryContextPass, interactive_menu)
         .add_systems(Update, (
@@ -96,7 +106,6 @@ fn main() {
             toggle_debug_render_state,
             set_max_fps,
             fps_counter,
-            draw_cursor,
         ))
         .run();
 }
@@ -438,17 +447,25 @@ fn on_shape_scene_spawn(
 struct Ground;
 
 fn draw_cursor(
-    camera_query: Single<(&Camera, &GlobalTransform)>,
-    ground: Single<&GlobalTransform, With<Ground>>,
+    mut scroll_events: MessageReader<MouseWheel>,
+    camera_query: Single<(&Camera, &GlobalTransform), Without<FlyCamera>>,
     window: Single<&Window>,
     mut gizmos: Gizmos,
 ) {
     let (camera, camera_transform) = *camera_query;
+    let mut distance = 0.0;
+    for event in scroll_events.read() {
+        distance += event.y
+    }
+
+    if distance.abs() < f32::EPSILON {
+        return;
+    }
 
     if let Some(cursor_position) = window.cursor_position()
         && let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position)
         {
-            let point = ray.get_point(5.0);
+            let point = ray.get_point(distance);
 
             gizmos.sphere(point, 0.1, Color::WHITE);
         }
@@ -491,6 +508,7 @@ fn interactive_menu(
     maps: Query<(Entity, &MapTag)>,
     shapes: Query<(Entity, &ShapeTag)>,
     structures: Query<(Entity, &StructureTag)>,
+    mut interaction_mode: ResMut<InteractionMode>,
 ) -> Result {
     egui::Window::new("Rusty Physics Interactive Menu")
         .resizable(true)
@@ -499,6 +517,20 @@ fn interactive_menu(
         .show(contexts.ctx_mut()?, |ui| {
             ui.label("Keybinds:");
             ui.label("Toggle Debug Renders: Q");
+
+            ui.separator();
+            ui.label("Interactive Mode");
+            ui.horizontal(|ui| {
+                let is_click_mode = interaction_mode.0 == InteractionModeType::Click;
+                if ui.selectable_label(is_click_mode, "Click Mode").clicked() {
+                    interaction_mode.0 = InteractionModeType::Click;
+                }
+
+                let is_impulse_mode = interaction_mode.0 == InteractionModeType::Impulse;
+                if ui.selectable_label(is_impulse_mode, "Impulse Mode").clicked() {
+                    interaction_mode.0 = InteractionModeType::Impulse;
+                }
+            });
 
             ui.separator();
             ui.label("Spawn Maps");
