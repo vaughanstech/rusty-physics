@@ -1,9 +1,9 @@
 use std::{time::Duration};
 
 use avian3d::{PhysicsPlugins, prelude::*};
-use bevy::{DefaultPlugins, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, gltf::GltfMeshExtras, input::mouse::{MouseMotion, MouseWheel}, prelude::*, scene::SceneInstanceReady };
+use bevy::{DefaultPlugins, color, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, gltf::GltfMeshExtras, input::mouse::{MouseMotion, MouseWheel}, prelude::*, scene::SceneInstanceReady };
 use bevy_asset::{AssetServer};
-use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui::{self, TextStyle}};
 use bevy_framepace::*;
 use serde::{Deserialize, Serialize};
 
@@ -73,8 +73,24 @@ enum InteractionModeType {
     Impulse,
 }
 
-#[derive(Resource)]
+#[derive(Resource, PartialEq)]
 struct InteractionMode(InteractionModeType);
+
+#[derive(Resource)]
+struct CursorDistance(f32);
+
+#[derive(Component)]
+struct GizmoCoordinateLabel;
+
+#[derive(Component)]
+struct ImpulseCursorGizmo;
+
+#[derive(Component)]
+struct XCoord;
+#[derive(Component)]
+struct YCoord;
+#[derive(Component)]
+struct ZCoord;
 
 fn main() {
     App::new()
@@ -96,22 +112,47 @@ fn main() {
         })
         .insert_resource(CameraOrientation::default())
         .insert_resource(InteractionMode(InteractionModeType::Click))
+        .insert_resource(CursorDistance(10.0))
         .add_systems(Startup, (setup, setup_camera))
         .add_systems(EguiPrimaryContextPass, interactive_menu)
         .add_systems(Update, (
             // spawn_cubes.run_if(on_timer(Duration::from_secs(1))),
             keyboard_movement,
             mouse_look,
-            mouse_scroll,
+            // Camera Zoom/Scroll runs only in Click Mode
+            (
+                mouse_scroll,
+                set_impulse_cursor_visibility::<false>,
+            ).run_if(resource_equals(InteractionMode(InteractionModeType::Click))),
+            // Cursor Control/Draw runs only in Impulse Mode
+            (
+                impulse_mode_scroll_control, // System to update cursor distance
+                draw_cursor,                // System to draw the gizmo
+                update_gizmo_label,
+                set_impulse_cursor_visibility::<true>,
+            ).run_if(resource_equals(InteractionMode(InteractionModeType::Impulse))),
             toggle_debug_render_state,
             set_max_fps,
             fps_counter,
+            update_label,
         ))
         .run();
 }
 
+#[derive(Component)]
+struct ExampleLabel {
+    entity: Entity,
+}
+
+#[derive(Component)]
+struct ExampleDisplay;
+
 fn setup(
     mut commands: Commands,
+    mut gizmo_assets: ResMut<Assets<GizmoAsset>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
 
     // Light: bright white light
@@ -139,6 +180,189 @@ fn setup(
         TextColor(Color::srgb(0.0, 1.0, 0.0)),
         FpsText,
     ));
+
+    let cube = commands.spawn((
+        SceneRoot(
+            asset_server.load(
+                GltfAssetLabel::Scene(1)
+                    .from_asset("shapes.glb"),   
+        )),
+        Transform::from_xyz(0.0, 10.0, 0.0),
+        ShapeTag::Cube,
+    )).id();
+
+    let text_style = TextFont {
+        ..Default::default()
+    };
+
+    let label_text_style = (text_style.clone(), TextColor(color::palettes::css::ORANGE.into()));
+
+    commands.spawn((
+        Text::default(),
+        text_style,
+        Node {
+            position_type: PositionType::Absolute,
+            top: px(12),
+            right: px(12),
+            ..default()
+        },
+        ExampleDisplay,
+    ));
+
+
+    let mut label = |entity: Entity, label: &str| {
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                ..Default::default()
+            },
+            ExampleLabel { entity },
+            children![(
+                Text::new(label),
+                label_text_style.clone(),
+                Node {
+                    position_type: PositionType::Absolute,
+                    bottom: Val::ZERO,
+                    ..Default::default()
+                },
+                TextLayout::default().with_no_wrap(),
+            )],
+        ));
+    };
+    label(cube, "┌─ Cube");
+
+    // commands.spawn((
+    //     Text::new("TEST"),
+    //     TextFont {
+    //         font_size: 50.0,
+    //         ..Default::default()
+    //     },
+    //     TextColor(Color::WHITE),
+    //     Transform::from_xyz(0.0, 0.0, 0.0),
+    // ));
+
+    commands.spawn((
+        Mesh3d(meshes.add(Sphere::new(0.1).mesh().uv(23, 16))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(1.0, 1.0, 1.0),
+            unlit: true,
+            ..Default::default()
+        })),
+        Transform::from_xyz(0.0, 0.0, 0.0),
+        Visibility::Hidden,
+    ))
+    .insert(ImpulseCursorGizmo);
+
+    // let mut gizmo = GizmoAsset::new();
+
+    // gizmo.sphere(Isometry3d::IDENTITY, 0.1, Color::WHITE);
+
+    // let parent_gizmo = commands.spawn((
+    //     Gizmo {
+    //         handle: gizmo_assets.add(gizmo),
+    //         line_config: GizmoLineConfig {
+    //             width: 5.,
+    //             ..Default::default()
+    //         },
+    //         ..Default::default()
+    //     },
+    //     Transform::from_xyz(0.0, 0.0, 0.0),
+    //     Visibility::Hidden,
+    // )).insert(ImpulseCursorGizmo).id();
+
+    // let child_text = commands.spawn((
+    //     Text::new("Impulse Position:"),
+    //     TextFont {
+    //         font_size: 16.0,
+    //         ..Default::default()
+    //     },
+    //     TextColor(Color::WHITE),
+    //     Visibility::Hidden,
+    // )).insert(ImpulseCursorGizmo).id();
+    // // .with_child((
+    // //     TextSpan::default(),
+    // //     TextFont {
+    // //         font_size: 16.0,
+    // //         ..Default::default()
+    // //     },
+    // //     TextColor(Color::WHITE),
+    // // )).id();
+
+    // commands.entity(parent_gizmo).add_child(child_text);
+
+    // Gizmo Coordinate Label (Initially hidden)
+    // commands.spawn((
+    //     Text::new("X: "),
+    //     TextFont {
+    //         font_size: 16.0,
+    //         ..Default::default()
+    //     },
+    // )).with_child((
+    //     TextSpan::default(),
+    //     TextFont {
+    //         font_size: 16.0,
+    //         ..Default::default()
+    //     },
+    //     TextColor(Color::WHITE),
+    //     XCoord,
+    // ))
+    // .insert(GizmoCoordinateLabel)
+    // .insert(Visibility::Visible);
+
+    // commands.spawn((
+    //     Text::new("Y: "),
+    //     TextFont {
+    //         font_size: 16.0,
+    //         ..Default::default()
+    //     },
+    // )).with_child((
+    //     TextSpan::default(),
+    //     TextFont {
+    //         font_size: 16.0,
+    //         ..Default::default()
+    //     },
+    //     TextColor(Color::WHITE),
+    //     YCoord,
+    // ))
+    // .insert(GizmoCoordinateLabel)
+    // .insert(Visibility::Visible);
+
+    // commands.spawn((
+    //     Text::new("Z: "),
+    //     TextFont {
+    //         font_size: 16.0,
+    //         ..Default::default()
+    //     },
+    // )).with_child((
+    //     TextSpan::default(),
+    //     TextFont {
+    //         font_size: 16.0,
+    //         ..Default::default()
+    //     },
+    //     TextColor(Color::WHITE),
+    //     ZCoord,
+    // ))
+    // .insert(GizmoCoordinateLabel)
+    // .insert(Visibility::Visible);
+}
+
+fn update_label(
+    mut labels: Query<(&mut Node, &ExampleLabel)>,
+    labeled: Query<&GlobalTransform>,
+    mut query: Query<&mut Transform, With<FlyCamera>>,
+    camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) {
+    let (camera, camera_transform) = *camera_query;
+
+    for mut transform in &mut query {
+        for (mut node, label) in &mut labels {
+            let world_position = labeled.get(label.entity).unwrap().translation() + Vec3::Y;
+
+            let viewport_position = camera.world_to_viewport(camera_transform, world_position).unwrap();
+            node.top = px(viewport_position.y);
+            node.left = px(viewport_position.x);
+        }
+    }
 }
 
 /// Set the max framerate limit
@@ -290,6 +514,21 @@ fn mouse_scroll(
     for mut transform in &mut query {
         let forward = transform.forward();
         transform.translation += forward * scroll_delta * settings.zoom_speed * time.delta_secs();
+    }
+}
+
+fn impulse_mode_scroll_control(
+    mut scroll_events: MessageReader<MouseWheel>,
+    mut distance: ResMut<CursorDistance>,
+) {
+    let mut scroll_delta = 0.0;
+    for event in scroll_events.read() {
+        scroll_delta += event.y;
+    }
+
+    if scroll_delta.abs() > f32::EPSILON {
+        distance.0 -= scroll_delta * 0.5;
+        distance.0 = distance.0.clamp(1.0, 50.0);
     }
 }
 
@@ -446,29 +685,101 @@ fn on_shape_scene_spawn(
 #[derive(Component)]
 struct Ground;
 
-fn draw_cursor(
-    mut scroll_events: MessageReader<MouseWheel>,
-    camera_query: Single<(&Camera, &GlobalTransform), Without<FlyCamera>>,
-    window: Single<&Window>,
-    mut gizmos: Gizmos,
+fn draw_gizmos(
+    mut gizmos: Gizmos
 ) {
+    gizmos.sphere(Vec3::new(0.0, 0.0, 0.0), 0.1, Color::WHITE);
+}
+
+fn draw_cursor(
+    distance: Res<CursorDistance>,
+    camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
+    window: Single<&Window>,
+    mut gizmo_query: Query<&mut Transform, With<ImpulseCursorGizmo>>,
+) {
+    // If the system runs, the mode is Impulse, so we draw the cursor
+    let current_distance = distance.0;
     let (camera, camera_transform) = *camera_query;
-    let mut distance = 0.0;
-    for event in scroll_events.read() {
-        distance += event.y
-    }
-
-    if distance.abs() < f32::EPSILON {
+    let Ok(mut gizmo_transform) = gizmo_query.single_mut() else {
         return;
-    }
-
+    };
     if let Some(cursor_position) = window.cursor_position()
         && let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position)
-        {
-            let point = ray.get_point(distance);
+    {
+        // Calculate the point on the ray at the current stored distance
+        let point = ray.get_point(current_distance);
 
-            gizmos.sphere(point, 0.1, Color::WHITE);
+        // Draw a small white sphere gizmo
+        gizmo_transform.translation = point
+    }
+}
+
+fn update_gizmo_label(
+    distance: Res<CursorDistance>,
+    camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
+    window: Single<&Window>,
+    mut x_query: Query<(&mut TextSpan, &mut Node), (With<XCoord>, With<GizmoCoordinateLabel>, Without<YCoord>, Without<ZCoord>)>,
+    mut y_query: Query<(&mut TextSpan, &mut Node), (With<YCoord>, With<GizmoCoordinateLabel>, Without<XCoord>, Without<ZCoord>)>,
+    mut z_query: Query<(&mut TextSpan, &mut Node), (With<ZCoord>, With<GizmoCoordinateLabel>, Without<XCoord>, Without<YCoord>)>,
+) {
+    let current_distance = distance.0;
+    let (camera, camera_transform) = *camera_query;
+
+    let Ok((mut x_text, mut x_style)) = x_query.single_mut() else { return; };
+    let Ok((mut y_text, mut y_style)) = y_query.single_mut() else { return; };
+    let Ok((mut z_text, mut z_style)) = z_query.single_mut() else { return; };
+
+    
+    if let Some(cursor_position) = window.cursor_position()
+        && let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position)
+    {
+        // Calculate the 3D world point of the gizmo
+        let world_point = ray.get_point(current_distance);
+
+        // Project the world point back to viewport coordinates
+        if let Ok(viewport_pos) = camera.world_to_viewport(camera_transform, world_point) {
+            x_text.0 = format!("{:.2}", world_point.x);
+            y_text.0 = format!("{:.2}", world_point.y);
+            z_text.0 = format!("{:.2}", world_point.z);
+            info!("X: {:?}", x_text);
+
+            x_style.left = Val::Px(viewport_pos.x + 10.0);
+            x_style.top = Val::Px(viewport_pos.y + 10.0);
+
+            y_style.left = Val::Px(viewport_pos.x + 10.0);
+            y_style.top = Val::Px(viewport_pos.y + 10.0);
+
+            z_style.left = Val::Px(viewport_pos.x + 10.0);
+            z_style.top = Val::Px(viewport_pos.y + 10.0);
+            return;
         }
+    }
+
+    error!("Could not calculate position!");
+    x_style.left = Val::Px(-1000.0);
+    x_style.top = Val::Px(-1000.0);
+
+    y_style.left = Val::Px(-1000.0);
+    y_style.top = Val::Px(-1000.0);
+
+    z_style.left = Val::Px(-1000.0);
+    z_style.top = Val::Px(-1000.0);
+}
+
+fn set_gizmo_label_visibility<const VISIBLE: bool>(
+    mut query: Query<&mut Visibility, With<GizmoCoordinateLabel>>,
+) {
+    for mut visibility in &mut query {
+        *visibility = if VISIBLE { Visibility::Visible } else { Visibility::Hidden };
+    }
+}
+
+fn set_impulse_cursor_visibility<const VISIBLE: bool>(
+    mut query: Query<&mut Visibility, With<ImpulseCursorGizmo>>,
+) {
+    for mut visibility in & mut query {
+        *visibility = if VISIBLE { Visibility::Visible } else { Visibility::Hidden };
+    }
 }
 
 // fn spawn_cubes(
