@@ -192,6 +192,7 @@ fn setup(
     )).id();
 
     let text_style = TextFont {
+        font: asset_server.load("fonts\\FiraMono-Medium.ttf"),
         ..Default::default()
     };
 
@@ -229,7 +230,7 @@ fn setup(
             )],
         ));
     };
-    label(cube, "┌─ Cube");
+    label(cube, "┌─ Cube\n|");
 
     // commands.spawn((
     //     Text::new("TEST"),
