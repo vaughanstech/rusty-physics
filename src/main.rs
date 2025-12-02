@@ -1,9 +1,8 @@
-use std::{time::Duration};
 
 use avian3d::{PhysicsPlugins, prelude::*};
 use bevy::{DefaultPlugins, color, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, gltf::GltfMeshExtras, input::mouse::{MouseMotion, MouseWheel}, prelude::*, scene::SceneInstanceReady };
 use bevy_asset::{AssetServer};
-use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui::{self, TextStyle}};
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_framepace::*;
 use serde::{Deserialize, Serialize};
 
@@ -80,17 +79,7 @@ struct InteractionMode(InteractionModeType);
 struct CursorDistance(f32);
 
 #[derive(Component)]
-struct GizmoCoordinateLabel;
-
-#[derive(Component)]
 struct ImpulseCursorGizmo;
-
-#[derive(Component)]
-struct XCoord;
-#[derive(Component)]
-struct YCoord;
-#[derive(Component)]
-struct ZCoord;
 
 fn main() {
     App::new()
@@ -143,11 +132,10 @@ struct ExampleLabel {
 }
 
 #[derive(Component)]
-struct ExampleDisplay;
+struct ImpulseCoords;
 
 fn setup(
     mut commands: Commands,
-    mut gizmo_assets: ResMut<Assets<GizmoAsset>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
@@ -198,18 +186,6 @@ fn setup(
 
     let label_text_style = (text_style.clone(), TextColor(color::palettes::css::ORANGE.into()));
 
-    commands.spawn((
-        Text::default(),
-        text_style,
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(-5),
-            right: px(12),
-            ..default()
-        },
-        ExampleDisplay,
-    ));
-
 
     let mut label = |entity: Entity, label: &str| {
         commands.spawn((
@@ -227,50 +203,13 @@ fn setup(
                     ..Default::default()
                 },
                 TextLayout::default().with_no_wrap(),
+                ImpulseCoords,
             )],
             Visibility::Hidden,
         )).insert(ImpulseCursorGizmo);
     };
-    label(gizmo_ball, "┌─ Gizmo");
-
-    
-
-    // let mut gizmo = GizmoAsset::new();
-
-    // gizmo.sphere(Isometry3d::IDENTITY, 0.1, Color::WHITE);
-
-    // let parent_gizmo = commands.spawn((
-    //     Gizmo {
-    //         handle: gizmo_assets.add(gizmo),
-    //         line_config: GizmoLineConfig {
-    //             width: 5.,
-    //             ..Default::default()
-    //         },
-    //         ..Default::default()
-    //     },
-    //     Transform::from_xyz(0.0, 0.0, 0.0),
-    //     Visibility::Hidden,
-    // )).insert(ImpulseCursorGizmo).id();
+    label(gizmo_ball, "┌─ Gizmo: (0.00, 0.00, 0.00)");
 }
-
-// fn update_label(
-//     mut labels: Query<(&mut Node, &ExampleLabel)>,
-//     labeled: Query<&GlobalTransform>,
-//     mut query: Query<&mut Transform, With<FlyCamera>>,
-//     camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
-// ) {
-//     let (camera, camera_transform) = *camera_query;
-
-//     for mut transform in &mut query {
-//         for (mut node, label) in &mut labels {
-//             let world_position = labeled.get(label.entity).unwrap().translation() + (Vec3::Y/2.0);
-
-//             let viewport_position = camera.world_to_viewport(camera_transform, world_position).unwrap();
-//             node.top = px(viewport_position.y);
-//             node.left = px(viewport_position.x);
-//         }
-//     }
-// }
 
 /// Set the max framerate limit
 fn set_max_fps(
@@ -595,6 +534,7 @@ struct Ground;
 fn draw_cursor(
     distance: Res<CursorDistance>,
     mut labels: Query<(&mut Node, &ExampleLabel)>,
+    mut text: Single<&mut Text, With<ImpulseCoords>>,
     labeled: Query<&GlobalTransform>,
     camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
     window: Single<&Window>,
@@ -612,75 +552,24 @@ fn draw_cursor(
         // Calculate the point on the ray at the current stored distance
         let point = ray.get_point(current_distance);
 
+        let position_vector = point;
+
+        let position_text = format!(
+            "({:.2}, {:.2}, {:.2})",
+            position_vector.x, position_vector.y, position_vector.z
+        );
+
         for (mut node, label) in &mut labels {
-            let world_position = labeled.get(label.entity).unwrap().translation() + Vec3::Y * 0.1;
+            let world_position = labeled.get(label.entity).unwrap().translation() + Vec3::Y * 0.05;
             let viewport_position = camera.world_to_viewport(camera_transform, world_position).unwrap();
             node.top = px(viewport_position.y - 20.0);
             node.left = px(viewport_position.x);
+
+            text.0 = format!("┌─ Gizmo: {}", position_text.clone());
         }
 
         // Draw a small white sphere gizmo
-        gizmo_transform.translation = point
-    }
-}
-
-// fn update_gizmo_label(
-//     distance: Res<CursorDistance>,
-//     camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
-//     window: Single<&Window>,
-//     mut x_query: Query<(&mut TextSpan, &mut Node), (With<XCoord>, With<GizmoCoordinateLabel>, Without<YCoord>, Without<ZCoord>)>,
-//     mut y_query: Query<(&mut TextSpan, &mut Node), (With<YCoord>, With<GizmoCoordinateLabel>, Without<XCoord>, Without<ZCoord>)>,
-//     mut z_query: Query<(&mut TextSpan, &mut Node), (With<ZCoord>, With<GizmoCoordinateLabel>, Without<XCoord>, Without<YCoord>)>,
-// ) {
-//     let current_distance = distance.0;
-//     let (camera, camera_transform) = *camera_query;
-
-//     let Ok((mut x_text, mut x_style)) = x_query.single_mut() else { return; };
-//     let Ok((mut y_text, mut y_style)) = y_query.single_mut() else { return; };
-//     let Ok((mut z_text, mut z_style)) = z_query.single_mut() else { return; };
-
-    
-//     if let Some(cursor_position) = window.cursor_position()
-//         && let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position)
-//     {
-//         // Calculate the 3D world point of the gizmo
-//         let world_point = ray.get_point(current_distance);
-
-//         // Project the world point back to viewport coordinates
-//         if let Ok(viewport_pos) = camera.world_to_viewport(camera_transform, world_point) {
-//             x_text.0 = format!("{:.2}", world_point.x);
-//             y_text.0 = format!("{:.2}", world_point.y);
-//             z_text.0 = format!("{:.2}", world_point.z);
-//             info!("X: {:?}", x_text);
-
-//             x_style.left = Val::Px(viewport_pos.x + 10.0);
-//             x_style.top = Val::Px(viewport_pos.y + 10.0);
-
-//             y_style.left = Val::Px(viewport_pos.x + 10.0);
-//             y_style.top = Val::Px(viewport_pos.y + 10.0);
-
-//             z_style.left = Val::Px(viewport_pos.x + 10.0);
-//             z_style.top = Val::Px(viewport_pos.y + 10.0);
-//             return;
-//         }
-//     }
-
-//     error!("Could not calculate position!");
-//     x_style.left = Val::Px(-1000.0);
-//     x_style.top = Val::Px(-1000.0);
-
-//     y_style.left = Val::Px(-1000.0);
-//     y_style.top = Val::Px(-1000.0);
-
-//     z_style.left = Val::Px(-1000.0);
-//     z_style.top = Val::Px(-1000.0);
-// }
-
-fn set_gizmo_label_visibility<const VISIBLE: bool>(
-    mut query: Query<&mut Visibility, With<GizmoCoordinateLabel>>,
-) {
-    for mut visibility in &mut query {
-        *visibility = if VISIBLE { Visibility::Visible } else { Visibility::Hidden };
+        gizmo_transform.translation = point;
     }
 }
 
@@ -691,18 +580,6 @@ fn set_impulse_cursor_visibility<const VISIBLE: bool>(
         *visibility = if VISIBLE { Visibility::Visible } else { Visibility::Hidden };
     }
 }
-
-// fn spawn_cubes(
-//     mut commands: Commands,
-//     cube_handle: Res<CubeSceneHandle>,
-// ) {
-//     commands.spawn((
-//         SceneRoot(
-//             cube_handle.0.clone(),
-//         ),
-//         Transform::from_xyz(0.0, 10.0, 0.0),
-//     )).observe(on_cube_scene_spawn);
-// }
 #[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum MapTag {
     Flat,
