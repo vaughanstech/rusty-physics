@@ -117,6 +117,7 @@ fn main() {
             (
                 impulse_mode_scroll_control, // System to update cursor distance
                 draw_cursor,                // System to draw the gizmo
+                apply_force,
                 set_impulse_cursor_visibility::<true>,
             ).run_if(resource_equals(InteractionMode(InteractionModeType::Impulse))),
             toggle_debug_render_state,
@@ -136,8 +137,6 @@ struct ImpulseCoords;
 
 fn setup(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
 
@@ -168,12 +167,9 @@ fn setup(
     ));
 
     let gizmo_ball = commands.spawn((
-        Mesh3d(meshes.add(Sphere::new(0.1).mesh().uv(23, 16))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 1.0, 1.0),
-            unlit: true,
-            ..Default::default()
-        })),
+        SceneRoot(
+            asset_server.load(GltfAssetLabel::Scene(4).from_asset("shapes.glb"))
+        ),
         Transform::from_xyz(0.0, 0.0, 0.0),
         Visibility::Hidden,
     ))
@@ -208,7 +204,7 @@ fn setup(
             Visibility::Hidden,
         )).insert(ImpulseCursorGizmo);
     };
-    label(gizmo_ball, "┌─ Gizmo: (0.00, 0.00, 0.00)");
+    label(gizmo_ball, "┌─ Impulse: (0.00, 0.00, 0.00)");
 }
 
 /// Set the max framerate limit
@@ -443,6 +439,8 @@ fn process_gltf_descendants(
                         BRigidBody::Static => RigidBody::Static,
                         BRigidBody::Dynamic => RigidBody::Dynamic,
                     },
+                    Mass(10.0),
+                    CenterOfMass::default(),
                     Collider::cuboid(scaled_size.x, scaled_size.y, scaled_size.z),
                     DebugRender::default().with_collider_color(Color::srgb(0.0, 1.0, 0.0)),
                 ));
@@ -565,12 +563,58 @@ fn draw_cursor(
             node.top = px(viewport_position.y - 20.0);
             node.left = px(viewport_position.x);
 
-            text.0 = format!("┌─ Gizmo: {}", position_text.clone());
+            text.0 = format!("┌─ Impulse: {}", position_text.clone());
         }
 
         // Draw a small white sphere gizmo
         gizmo_transform.translation = point;
     }
+}
+
+fn apply_force(
+    distance: Res<CursorDistance>,
+    mut forces: Query<(&Transform, Forces), With<RigidBody>>,
+    window: Single<&Window>,
+    camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
+    mouse_input: Res<ButtonInput<MouseButton>>,
+) {
+    const BLAST_RADIUS: f32 = 100.0;
+    const MAX_FORCE: f32 = 10.0;
+    // let current_distance = distance.0;
+    let (camera, camera_transform) = *camera_query;
+    if let Some(cursor_position) = window.cursor_position()
+        && let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position)
+        && mouse_input.pressed(MouseButton::Left)
+    {
+        let point = ray.get_point(distance.0);
+        for (body_transform, mut impulse_comp) in &mut forces {
+            // Vector pointing from point to rigid_body
+            let direction_vec = body_transform.translation - point;
+
+            // Calculating distance
+            let distance = direction_vec.length();
+
+            // Check radius and avoid division by zero if distance is 0
+            if distance > 0.0 && distance < BLAST_RADIUS {
+                // Linear falloff factor: 1.0 at center, 0.0 at edge
+                let falloff = 1.0 - (distance / BLAST_RADIUS);
+
+                // Calculate the impulse vector: Direction * Max Force * Falloff
+                let impulse = direction_vec.normalize() * MAX_FORCE * falloff;
+
+                // Apply the impulse
+                impulse_comp.apply_linear_impulse(impulse);
+            }
+        }
+        // info!("{:?}", point);
+        // if mouse_input.pressed(MouseButton::Left) {
+        //     let force_vector = Vec3::new(0.0, 5.0, 0.0);
+        //     for mut force in &mut forces {
+        //         force.apply_linear_impulse_at_point(force_vector, Vec3::new(0.0, -10.0, -5.0));
+        //     }
+        // }
+    }
+
 }
 
 fn set_impulse_cursor_visibility<const VISIBLE: bool>(
@@ -707,7 +751,7 @@ fn interactive_menu(
                             ShapeTag::Torus => commands.spawn((
                                 SceneRoot(
                                     asset_server.load(
-                                        GltfAssetLabel::Scene(4)
+                                        GltfAssetLabel::Scene(5)
                                         .from_asset("shapes.glb"),
                                     )),
                                 Transform::from_xyz(0.0, 10.0, 0.0),

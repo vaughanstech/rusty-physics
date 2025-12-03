@@ -3,7 +3,7 @@
     "generator": "Khronos glTF Blender I/O v4.5.49",
     "version": "2.0"
   },
-  "scene": 2,
+  "scene": 4,
   "scenes": [
     {
       "name": "cone",
@@ -30,9 +30,15 @@
       ]
     },
     {
-      "name": "torus",
+      "name": "target",
       "nodes": [
         4
+      ]
+    },
+    {
+      "name": "torus",
+      "nodes": [
+        5
       ]
     }
   ],
@@ -55,6 +61,10 @@
     },
     {
       "mesh": 4,
+      "name": "target"
+    },
+    {
+      "mesh": 5,
       "name": "Torus"
     }
   ],
@@ -95,6 +105,20 @@
           0.07404730468988419,
           0.16481421887874603,
           0.1523161083459854,
+          1
+        ],
+        "metallicFactor": 0,
+        "roughnessFactor": 0.5
+      }
+    },
+    {
+      "doubleSided": true,
+      "name": "Material",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.18590542674064636,
+          0.01003414299339056,
+          0.0033567147329449654,
           1
         ],
         "metallicFactor": 0,
@@ -197,11 +221,7 @@
       ]
     },
     {
-      "extras": {
-        "collider": "TrimeshFromMesh",
-        "rigid_body": "Dynamic"
-      },
-      "name": "Torus",
+      "name": "target.001",
       "primitives": [
         {
           "attributes": {
@@ -211,6 +231,24 @@
           },
           "indices": 19,
           "material": 3
+        }
+      ]
+    },
+    {
+      "extras": {
+        "collider": "ConvexHull",
+        "rigid_body": "Dynamic"
+      },
+      "name": "Torus",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 20,
+            "NORMAL": 21,
+            "TEXCOORD_0": 22
+          },
+          "indices": 23,
+          "material": 4
         }
       ]
     }
@@ -355,6 +393,40 @@
     {
       "bufferView": 16,
       "componentType": 5126,
+      "count": 47,
+      "max": [
+        0.866025447845459,
+        1,
+        1
+      ],
+      "min": [
+        -0.8660255074501038,
+        -1,
+        -1
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 17,
+      "componentType": 5126,
+      "count": 47,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 18,
+      "componentType": 5126,
+      "count": 47,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 19,
+      "componentType": 5123,
+      "count": 180,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 20,
+      "componentType": 5126,
       "count": 637,
       "max": [
         1.25,
@@ -369,19 +441,19 @@
       "type": "VEC3"
     },
     {
-      "bufferView": 17,
+      "bufferView": 21,
       "componentType": 5126,
       "count": 637,
       "type": "VEC3"
     },
     {
-      "bufferView": 18,
+      "bufferView": 22,
       "componentType": 5126,
       "count": 637,
       "type": "VEC2"
     },
     {
-      "bufferView": 19,
+      "bufferView": 23,
       "componentType": 5123,
       "count": 3456,
       "type": "SCALAR"
@@ -486,33 +558,57 @@
     },
     {
       "buffer": 0,
-      "byteLength": 7644,
+      "byteLength": 564,
       "byteOffset": 31844,
       "target": 34962
     },
     {
       "buffer": 0,
+      "byteLength": 564,
+      "byteOffset": 32408,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 376,
+      "byteOffset": 32972,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 360,
+      "byteOffset": 33348,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
       "byteLength": 7644,
-      "byteOffset": 39488,
+      "byteOffset": 33708,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 7644,
+      "byteOffset": 41352,
       "target": 34962
     },
     {
       "buffer": 0,
       "byteLength": 5096,
-      "byteOffset": 47132,
+      "byteOffset": 48996,
       "target": 34962
     },
     {
       "buffer": 0,
       "byteLength": 6912,
-      "byteOffset": 52228,
+      "byteOffset": 54092,
       "target": 34963
     }
   ],
   "buffers": [
     {
       "uri": "shapes_data.bin",
-      "byteLength": 59140
+      "byteLength": 61004
     }
   ]
 }
