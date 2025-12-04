@@ -70,6 +70,7 @@ struct FpsText;
 enum InteractionModeType {
     Click,
     Impulse,
+    Wrecker,
 }
 
 #[derive(Resource, PartialEq)]
@@ -79,7 +80,13 @@ struct InteractionMode(InteractionModeType);
 struct CursorDistance(f32);
 
 #[derive(Component)]
-struct ImpulseCursorGizmo;
+struct ImpulseCursor;
+
+#[derive(Component)]
+struct WreckerCursor;
+
+#[derive(Component)]
+struct CursorEntity;
 
 #[derive(Resource)]
 struct ImpulseSettings {
@@ -127,11 +134,16 @@ fn main() {
             ).run_if(resource_equals(InteractionMode(InteractionModeType::Click))),
             // Cursor Control/Draw runs only in Impulse Mode
             (
-                impulse_mode_scroll_control, // System to update cursor distance
+                scroll_control, // System to update cursor distance
                 draw_cursor,                // System to draw the gizmo
                 apply_force,
                 set_impulse_cursor_visibility::<true>,
             ).run_if(resource_equals(InteractionMode(InteractionModeType::Impulse))),
+            (
+                scroll_control,
+                draw_cursor,
+                set_impulse_cursor_visibility::<false>,
+            ).run_if(resource_equals(InteractionMode(InteractionModeType::Wrecker))),
             toggle_debug_render_state,
             set_max_fps,
             fps_counter,
@@ -178,14 +190,27 @@ fn setup(
         FpsText,
     ));
 
-    let gizmo_ball = commands.spawn((
+    let impulse_ball = commands.spawn((
         SceneRoot(
             asset_server.load(GltfAssetLabel::Scene(4).from_asset("shapes.glb"))
         ),
         Transform::from_xyz(0.0, 0.0, 0.0),
         Visibility::Hidden,
     ))
-    .insert(ImpulseCursorGizmo).id();
+    .insert(CursorEntity)
+    .insert(ImpulseCursor).id();
+
+    let wrecker_ball = commands.spawn((
+        SceneRoot(
+                asset_server.load(
+                    GltfAssetLabel::Scene(3)
+                    .from_asset("shapes.glb"),
+            )),
+        Transform::from_xyz(0.0, 0.0, 0.0),
+        Visibility::Hidden,
+    ))
+    .insert(CursorEntity)
+    .insert(WreckerCursor).id();
 
     let text_style = TextFont {
         font: asset_server.load(r"fonts\FiraMono-Medium.ttf"),
@@ -214,9 +239,9 @@ fn setup(
                 ImpulseCoords,
             )],
             Visibility::Hidden,
-        )).insert(ImpulseCursorGizmo);
+        )).insert(ImpulseCursor);
     };
-    label(gizmo_ball, "┌─ Impulse: (0.00, 0.00, 0.00)");
+    label(impulse_ball, "┌─ Impulse: (0.00, 0.00, 0.00)");
 }
 
 /// Set the max framerate limit
@@ -371,7 +396,7 @@ fn mouse_scroll(
     }
 }
 
-fn impulse_mode_scroll_control(
+fn scroll_control(
     mut scroll_events: MessageReader<MouseWheel>,
     mut distance: ResMut<CursorDistance>,
 ) {
@@ -548,12 +573,12 @@ fn draw_cursor(
     labeled: Query<&GlobalTransform>,
     camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
     window: Single<&Window>,
-    mut gizmo_query: Query<&mut Transform, With<ImpulseCursorGizmo>>,
+    mut cursor_entity_query: Query<&mut Transform, With<ImpulseCursor>>,
 ) {
     // If the system runs, the mode is Impulse, so we draw the cursor
     let current_distance = distance.0;
     let (camera, camera_transform) = *camera_query;
-    let Ok(mut gizmo_transform) = gizmo_query.single_mut() else {
+    let Ok(mut cursor_entity_transform) = cursor_entity_query.single_mut() else {
         return;
     };
     if let Some(cursor_position) = window.cursor_position()
@@ -570,16 +595,16 @@ fn draw_cursor(
         );
 
         for (mut node, label) in &mut labels {
-            let world_position = labeled.get(label.entity).unwrap().translation() + Vec3::Y * 0.05;
+            let world_position = labeled.get(label.entity).unwrap().translation() + Vec3::Y * 0.5;
             let viewport_position = camera.world_to_viewport(camera_transform, world_position).unwrap();
-            node.top = px(viewport_position.y - 20.0);
+            node.top = px(viewport_position.y);
             node.left = px(viewport_position.x);
 
             text.0 = format!("┌─ Impulse: {}", position_text.clone());
         }
 
         // Draw a small white sphere gizmo
-        gizmo_transform.translation = point;
+        cursor_entity_transform.translation = point;
     }
 }
 
@@ -628,12 +653,13 @@ fn apply_force(
 }
 
 fn set_impulse_cursor_visibility<const VISIBLE: bool>(
-    mut query: Query<&mut Visibility, With<ImpulseCursorGizmo>>,
+    mut query: Query<&mut Visibility, With<ImpulseCursor>>,
 ) {
     for mut visibility in & mut query {
         *visibility = if VISIBLE { Visibility::Visible } else { Visibility::Hidden };
     }
 }
+
 #[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum MapTag {
     Flat,
