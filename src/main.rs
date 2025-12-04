@@ -2,7 +2,7 @@
 use avian3d::{PhysicsPlugins, prelude::*};
 use bevy::{DefaultPlugins, color, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, gltf::GltfMeshExtras, input::mouse::{MouseMotion, MouseWheel}, prelude::*, scene::SceneInstanceReady };
 use bevy_asset::{AssetServer};
-use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui, input::EguiWantsInput};
 use bevy_framepace::*;
 use serde::{Deserialize, Serialize};
 
@@ -81,6 +81,17 @@ struct CursorDistance(f32);
 #[derive(Component)]
 struct ImpulseCursorGizmo;
 
+#[derive(Resource)]
+struct ImpulseSettings {
+    blast_radius: f32,
+    max_force: f32
+}
+impl Default for ImpulseSettings {
+    fn default() -> Self {
+        Self { blast_radius: 50.0, max_force: 100.0 }
+    }
+}
+
 fn main() {
     App::new()
         .add_plugins((
@@ -99,6 +110,7 @@ fn main() {
         .insert_resource(SetMaxFps {
             fps: 120.0,
         })
+        .insert_resource(ImpulseSettings::default())
         .insert_resource(CameraOrientation::default())
         .insert_resource(InteractionMode(InteractionModeType::Click))
         .insert_resource(CursorDistance(10.0))
@@ -574,12 +586,15 @@ fn draw_cursor(
 fn apply_force(
     distance: Res<CursorDistance>,
     mut forces: Query<(&Transform, Forces), With<RigidBody>>,
+    impulse_settings: Res<ImpulseSettings>,
     window: Single<&Window>,
     camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
     mouse_input: Res<ButtonInput<MouseButton>>,
+    egui_ctx: Res<EguiWantsInput>,
 ) {
-    const BLAST_RADIUS: f32 = 50.0;
-    const MAX_FORCE: f32 = 100.0;
+    if egui_ctx.is_pointer_over_area() {
+        return;
+    }
     // let current_distance = distance.0;
     let (camera, camera_transform) = *camera_query;
     if let Some(cursor_position) = window.cursor_position()
@@ -587,32 +602,27 @@ fn apply_force(
         && mouse_input.just_pressed(MouseButton::Left)
     {
         let point = ray.get_point(distance.0);
-        for (body_transform, mut impulse_comp) in &mut forces {
+        for (body_transform , mut impulse_comp) in &mut forces {
             // Vector pointing from point to rigid_body
             let direction_vec = body_transform.translation - point;
 
             // Set distance
             let distance = direction_vec.length();
+            info!("Distance: {}", distance);
 
             // Check radius and avoid division by zero if distance is 0
-            if distance > 0.0 && distance < BLAST_RADIUS {
+            if distance > 0.0 && distance < impulse_settings.blast_radius {
                 // Linear falloff factor: 1.0 at center, 0.0 at edge
-                let falloff = 1.0 - (distance / BLAST_RADIUS);
+                let falloff = 1.0 - (distance / impulse_settings.blast_radius);
 
                 // Calculate the impulse vector: Direction * Max Force * Falloff
-                let impulse = direction_vec.normalize() * MAX_FORCE * falloff;
+                info!("Normalized direction vector: {}", direction_vec.normalize());
+                let impulse = direction_vec.normalize() * impulse_settings.max_force * falloff;
 
                 // Apply the impulse
                 impulse_comp.apply_linear_impulse(impulse);
             }
         }
-        // info!("{:?}", point);
-        // if mouse_input.pressed(MouseButton::Left) {
-        //     let force_vector = Vec3::new(0.0, 5.0, 0.0);
-        //     for mut force in &mut forces {
-        //         force.apply_linear_impulse_at_point(force_vector, Vec3::new(0.0, -10.0, -5.0));
-        //     }
-        // }
     }
 
 }
@@ -651,6 +661,7 @@ fn interactive_menu(
     shapes: Query<(Entity, &ShapeTag)>,
     structures: Query<(Entity, &StructureTag)>,
     mut interaction_mode: ResMut<InteractionMode>,
+    mut impulse_settings: ResMut<ImpulseSettings>,
 ) -> Result {
     egui::Window::new("Rusty Physics Interactive Menu")
         .resizable(true)
@@ -673,6 +684,29 @@ fn interactive_menu(
                     interaction_mode.0 = InteractionModeType::Impulse;
                 }
             });
+            if interaction_mode.0 == InteractionModeType::Impulse {
+                ui.label("Impulse Settings");
+                ui.horizontal(|ui| {
+                    ui.label(format!("Blast Radius: {}", &impulse_settings.blast_radius));
+                    ui.add(egui::DragValue::new(&mut impulse_settings.blast_radius).speed(0.1));
+                    if ui.button("-").clicked() {
+                        impulse_settings.blast_radius -= 1.0;
+                    }
+                    if ui.button("+").clicked() {
+                        impulse_settings.blast_radius += 1.0;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label(format!("Max Force: {}", &impulse_settings.max_force));
+                    ui.add(egui::DragValue::new(&mut impulse_settings.max_force).speed(0.1));
+                    if ui.button("-").clicked() {
+                        impulse_settings.max_force -= 1.0;
+                    }
+                    if ui.button("+").clicked() {
+                        impulse_settings.max_force += 1.0;
+                    }
+                });
+            }
 
             ui.separator();
             ui.label("Spawn Maps");
