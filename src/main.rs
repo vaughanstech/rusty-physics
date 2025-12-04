@@ -578,20 +578,20 @@ fn apply_force(
     camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
     mouse_input: Res<ButtonInput<MouseButton>>,
 ) {
-    const BLAST_RADIUS: f32 = 100.0;
-    const MAX_FORCE: f32 = 10.0;
+    const BLAST_RADIUS: f32 = 50.0;
+    const MAX_FORCE: f32 = 100.0;
     // let current_distance = distance.0;
     let (camera, camera_transform) = *camera_query;
     if let Some(cursor_position) = window.cursor_position()
         && let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position)
-        && mouse_input.pressed(MouseButton::Left)
+        && mouse_input.just_pressed(MouseButton::Left)
     {
         let point = ray.get_point(distance.0);
         for (body_transform, mut impulse_comp) in &mut forces {
             // Vector pointing from point to rigid_body
             let direction_vec = body_transform.translation - point;
 
-            // Calculating distance
+            // Set distance
             let distance = direction_vec.length();
 
             // Check radius and avoid division by zero if distance is 0
