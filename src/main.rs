@@ -212,7 +212,6 @@ fn setup(
         Transform::from_xyz(0.0, 10.0, 0.0),
         Collider::sphere(0.5),
         RigidBody::Kinematic,
-        DebugRender::default().with_collider_color(Color::srgb(1.0, 1.0, 0.0)),
         Visibility::Hidden,
     ))
     .insert(WreckerCursor).id();
@@ -629,11 +628,11 @@ fn draw_cursor(
         for (mut node, label) in &mut labels {
             let world_position = labeled.get(label.entity).unwrap().translation() + Vec3::Y * 0.5;
             if let Some(viewport_position) = Some(camera.world_to_viewport(camera_transform, world_position)){
-                node.top = px(viewport_position.unwrap_or(Vec2::new(-100.0, -100.0)).y);
+                node.top = px(viewport_position.unwrap_or(Vec2::new(-100.0, -100.0)).y); // gracefully handle instances where viewport position in x and y are not available
                 node.left = px(viewport_position.unwrap_or(Vec2::new(-100.0, -100.0)).x);
 
                 text.0 = format!("┌─ Impulse: {}", position_text.clone());
-            } else {
+            } else { // gracefully handle instances where viewport position may not be available
                 // hide the label if the entity is not visible to the camera
                 node.top = px(-100.0);
                 node.left = px(-100.0);
@@ -688,11 +687,11 @@ fn draw_wrecker_cursor(
         for (mut node, label) in &mut labels {
             let world_position = labeled.get(label.entity).unwrap().translation() + Vec3::Y * 0.5;
             if let Some(viewport_position) = Some(camera.world_to_viewport(camera_transform, world_position)) {
-                node.top = px(viewport_position.unwrap_or(Vec2::new(-100.0, -100.0)).y);
+                node.top = px(viewport_position.unwrap_or(Vec2::new(-100.0, -100.0)).y); // gracefully handle instances where viewport position in x and y are not available
                 node.left = px(viewport_position.unwrap_or(Vec2::new(-100.0, -100.0)).x);
 
                 text.0 = format!("┌─ Wrecker: {}", position_text.clone());
-            } else {
+            } else { // gracefully handle instances where viewport position may not be available
                 node.top = px(-100.0);
                 node.left = px(-100.0);
             }
@@ -785,11 +784,13 @@ fn interactive_menu(
     mut contexts: EguiContexts,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     maps: Query<(Entity, &MapTag)>,
     shapes: Query<(Entity, &ShapeTag)>,
     structures: Query<(Entity, &StructureTag)>,
     mut interaction_mode: ResMut<InteractionMode>,
     mut impulse_settings: ResMut<ImpulseSettings>,
+    mut wrecker_query: Query<&mut Transform, With<WreckerCursor>>,
 ) -> Result {
     egui::Window::new("Rusty Physics Interactive Menu")
         .resizable(true)
@@ -798,21 +799,25 @@ fn interactive_menu(
         .show(contexts.ctx_mut()?, |ui| {
             ui.label("Keybinds:");
             ui.label("Toggle Debug Renders: Q");
+            ui.label("Enable Click Mode: C");
+            ui.label("Enable Impulse Mode: I");
+            ui.label("Enable Wrecker Mode: B");
+            ui.label("(+) and (-): Up and Down Arrow (respectively)");
 
             ui.separator();
             ui.label("Interactive Mode");
             ui.horizontal(|ui| {
                 let is_click_mode = interaction_mode.0 == InteractionModeType::Click;
-                if ui.selectable_label(is_click_mode, "Click Mode").clicked() {
+                if ui.selectable_label(is_click_mode, "Click Mode").clicked() || keyboard_input.just_pressed(KeyCode::KeyC) {
                     interaction_mode.0 = InteractionModeType::Click;
                 }
 
                 let is_impulse_mode = interaction_mode.0 == InteractionModeType::Impulse;
-                if ui.selectable_label(is_impulse_mode, "Impulse Mode").clicked() {
+                if ui.selectable_label(is_impulse_mode, "Impulse Mode").clicked() || keyboard_input.just_pressed(KeyCode::KeyI) {
                     interaction_mode.0 = InteractionModeType::Impulse;
                 }
                 let is_wrecker_mode = interaction_mode.0 == InteractionModeType::Wrecker;
-                if ui.selectable_label(is_wrecker_mode, "Wrecker Mode").clicked() {
+                if ui.selectable_label(is_wrecker_mode, "Wrecker Mode").clicked() || keyboard_input.just_pressed(KeyCode::KeyB) {
                     interaction_mode.0 = InteractionModeType::Wrecker;
                 }
             });
@@ -821,21 +826,35 @@ fn interactive_menu(
                 ui.horizontal(|ui| {
                     ui.label(format!("Blast Radius: {}", &impulse_settings.blast_radius));
                     ui.add(egui::DragValue::new(&mut impulse_settings.blast_radius).speed(0.1));
-                    if ui.button("-").clicked() {
+                    if ui.button("-").clicked() || keyboard_input.just_pressed(KeyCode::ArrowDown) {
                         impulse_settings.blast_radius -= 1.0;
                     }
-                    if ui.button("+").clicked() {
+                    if ui.button("+").clicked() || keyboard_input.just_pressed(KeyCode::ArrowUp) {
                         impulse_settings.blast_radius += 1.0;
                     }
                 });
                 ui.horizontal(|ui| {
                     ui.label(format!("Max Force: {}", &impulse_settings.max_force));
                     ui.add(egui::DragValue::new(&mut impulse_settings.max_force).speed(0.1));
-                    if ui.button("-").clicked() {
+                    if ui.button("-").clicked() || keyboard_input.just_pressed(KeyCode::ArrowDown) {
                         impulse_settings.max_force -= 1.0;
                     }
-                    if ui.button("+").clicked() {
+                    if ui.button("+").clicked() || keyboard_input.just_pressed(KeyCode::ArrowUp) {
                         impulse_settings.max_force += 1.0;
+                    }
+                });
+            }
+            if interaction_mode.0 == InteractionModeType::Wrecker {
+                ui.label("Wrecker Settings");
+                ui.horizontal(|ui| {
+                    for mut transform in &mut wrecker_query {
+                        ui.label(format!("Wrecker Scale: {}", &transform.scale));
+                        if ui.button("-").clicked() || keyboard_input.just_pressed(KeyCode::ArrowDown) {
+                            transform.scale -= 1.0;
+                        }
+                        if ui.button("+").clicked() || keyboard_input.just_pressed(KeyCode::ArrowUp) {
+                            transform.scale += 1.0;
+                        }
                     }
                 });
             }
