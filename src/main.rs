@@ -85,9 +85,6 @@ struct ImpulseCursor;
 #[derive(Component)]
 struct WreckerCursor;
 
-#[derive(Component)]
-struct CursorEntity;
-
 #[derive(Resource)]
 struct ImpulseSettings {
     blast_radius: f32,
@@ -120,7 +117,7 @@ fn main() {
         .insert_resource(ImpulseSettings::default())
         .insert_resource(CameraOrientation::default())
         .insert_resource(InteractionMode(InteractionModeType::Click))
-        .insert_resource(CursorDistance(10.0))
+        .insert_resource(CursorDistance(10.0)) // set cursor distance on spawn
         .add_systems(Startup, (setup, setup_camera))
         .add_systems(EguiPrimaryContextPass, interactive_menu)
         .add_systems(Update, (
@@ -131,6 +128,7 @@ fn main() {
             (
                 mouse_scroll,
                 set_impulse_cursor_visibility::<false>,
+                set_wrecker_cursor_visibility::<false>,
             ).run_if(resource_equals(InteractionMode(InteractionModeType::Click))),
             // Cursor Control/Draw runs only in Impulse Mode
             (
@@ -138,11 +136,13 @@ fn main() {
                 draw_cursor,                // System to draw the gizmo
                 apply_force,
                 set_impulse_cursor_visibility::<true>,
+                set_wrecker_cursor_visibility::<false>,
             ).run_if(resource_equals(InteractionMode(InteractionModeType::Impulse))),
             (
                 scroll_control,
-                draw_cursor,
+                draw_wrecker_cursor,
                 set_impulse_cursor_visibility::<false>,
+                set_wrecker_cursor_visibility::<true>,
             ).run_if(resource_equals(InteractionMode(InteractionModeType::Wrecker))),
             toggle_debug_render_state,
             set_max_fps,
@@ -159,9 +159,14 @@ struct ExampleLabel {
 #[derive(Component)]
 struct ImpulseCoords;
 
+#[derive(Component)]
+struct WreckerCoords;
+
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
 
     // Light: bright white light
@@ -197,19 +202,19 @@ fn setup(
         Transform::from_xyz(0.0, 0.0, 0.0),
         Visibility::Hidden,
     ))
-    .insert(CursorEntity)
     .insert(ImpulseCursor).id();
 
+    let sphere = meshes.add(Sphere::new(0.5));
+
     let wrecker_ball = commands.spawn((
-        SceneRoot(
-                asset_server.load(
-                    GltfAssetLabel::Scene(3)
-                    .from_asset("shapes.glb"),
-            )),
-        Transform::from_xyz(0.0, 0.0, 0.0),
+        Mesh3d(sphere.clone()),
+        MeshMaterial3d(materials.add(Color::srgb(0.0, 0.0, 1.0))),
+        Transform::from_xyz(0.0, 10.0, 0.0),
+        Collider::sphere(0.5),
+        RigidBody::Kinematic,
+        DebugRender::default().with_collider_color(Color::srgb(1.0, 1.0, 0.0)),
         Visibility::Hidden,
     ))
-    .insert(CursorEntity)
     .insert(WreckerCursor).id();
 
     let text_style = TextFont {
@@ -220,7 +225,7 @@ fn setup(
     let label_text_style = (text_style.clone(), TextColor(color::palettes::css::ORANGE.into()));
 
 
-    let mut label = |entity: Entity, label: &str| {
+    let mut impulse_label = |entity: Entity, label: &str| {
         commands.spawn((
             Node {
                 position_type: PositionType::Absolute,
@@ -241,14 +246,41 @@ fn setup(
             Visibility::Hidden,
         )).insert(ImpulseCursor);
     };
-    label(impulse_ball, "┌─ Impulse: (0.00, 0.00, 0.00)");
+    impulse_label(impulse_ball, "┌─ Impulse: (0.00, 0.00, 0.00)");
+
+    let mut wrecker_label = |entity: Entity, label: &str| {
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                ..Default::default()
+            },
+            ExampleLabel { entity },
+            children![(
+                Text::new(label),
+                label_text_style.clone(),
+                Node {
+                    position_type: PositionType::Absolute,
+                    bottom: Val::ZERO,
+                    ..Default::default()
+                },
+                TextLayout::default().with_no_wrap(),
+                WreckerCoords,
+            )],
+            Visibility::Hidden,
+        )).insert(WreckerCursor);
+    };
+    wrecker_label(wrecker_ball, "┌─ Wrecker: (0.00, 0.00, 0.00)");
 }
 
 /// Set the max framerate limit
 fn set_max_fps(
+    mut commands: Commands,
     mut settings: ResMut<FramepaceSettings>,
-    fps_limit: Res<SetMaxFps>
+    fps_limit: Res<SetMaxFps>,
 ) {
+    // Setting the Physics time equal to the max framerate
+    commands.insert_resource(Time::<Fixed>::from_hz(fps_limit.fps));
+    // Actually setting global max fps
     settings.limiter = Limiter::from_framerate(fps_limit.fps);
 }
 
@@ -476,7 +508,7 @@ fn process_gltf_descendants(
                         BRigidBody::Static => RigidBody::Static,
                         BRigidBody::Dynamic => RigidBody::Dynamic,
                     },
-                    Mass(10.0),
+                    Mass(100.0),
                     CenterOfMass::default(),
                     Collider::cuboid(scaled_size.x, scaled_size.y, scaled_size.z),
                     DebugRender::default().with_collider_color(Color::srgb(0.0, 1.0, 0.0)),
@@ -596,21 +628,83 @@ fn draw_cursor(
 
         for (mut node, label) in &mut labels {
             let world_position = labeled.get(label.entity).unwrap().translation() + Vec3::Y * 0.5;
-            let viewport_position = camera.world_to_viewport(camera_transform, world_position).unwrap();
-            node.top = px(viewport_position.y);
-            node.left = px(viewport_position.x);
+            if let Some(viewport_position) = Some(camera.world_to_viewport(camera_transform, world_position)){
+                node.top = px(viewport_position.unwrap_or(Vec2::new(-100.0, -100.0)).y);
+                node.left = px(viewport_position.unwrap_or(Vec2::new(-100.0, -100.0)).x);
 
-            text.0 = format!("┌─ Impulse: {}", position_text.clone());
+                text.0 = format!("┌─ Impulse: {}", position_text.clone());
+            } else {
+                // hide the label if the entity is not visible to the camera
+                node.top = px(-100.0);
+                node.left = px(-100.0);
+            }
         }
-
         // Draw a small white sphere gizmo
         cursor_entity_transform.translation = point;
     }
 }
 
+fn draw_wrecker_cursor(
+    distance: Res<CursorDistance>,
+    mut labels: Query<(&mut Node, &ExampleLabel)>,
+    mut text: Single<&mut Text, With<WreckerCoords>>,
+    labeled: Query<&GlobalTransform>,
+    camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
+    window: Single<&Window>,
+    time: Res<Time>,
+    mut wrecker_entity_query: Query<(&mut LinearVelocity, &mut Transform), With<WreckerCursor>>,
+) {
+    // If the system runs, the mode is Impulse, so we draw the cursor
+    let current_distance = distance.0;
+    let (camera, camera_transform) = *camera_query;
+    let Ok((mut linear_velocity, wrecker_entity_transform)) = wrecker_entity_query.single_mut() else {
+        return;
+    };
+    if let Some(cursor_position) = window.cursor_position()
+        && let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position)
+    {
+        // Calculate the point on the ray at the current stored distance
+        let point = ray.get_point(current_distance);
+
+        // Calculate the distance vector to the target point
+        let target_position = point;
+        let current_position = wrecker_entity_transform.translation;
+        let delta = target_position - current_position;
+
+        // Caculate the required velocity
+        let velocity = delta / time.delta_secs();
+        // info!("Velocity: {}", velocity);
+
+        // Set the LinearVelocity component
+        linear_velocity.0 = velocity;
+
+        let position_vector = current_position;
+
+        let position_text = format!(
+            "({:.2}, {:.2}, {:.2})",
+            position_vector.x, position_vector.y, position_vector.z
+        );
+
+        for (mut node, label) in &mut labels {
+            let world_position = labeled.get(label.entity).unwrap().translation() + Vec3::Y * 0.5;
+            if let Some(viewport_position) = Some(camera.world_to_viewport(camera_transform, world_position)) {
+                node.top = px(viewport_position.unwrap_or(Vec2::new(-100.0, -100.0)).y);
+                node.left = px(viewport_position.unwrap_or(Vec2::new(-100.0, -100.0)).x);
+
+                text.0 = format!("┌─ Wrecker: {}", position_text.clone());
+            } else {
+                node.top = px(-100.0);
+                node.left = px(-100.0);
+            }
+        }
+    } else {
+        linear_velocity.0 = Vec3::ZERO;
+    }
+}
+
 fn apply_force(
     distance: Res<CursorDistance>,
-    mut forces: Query<(&Transform, Forces), With<RigidBody>>,
+    mut forces: Query<(&Transform, Forces), (With<RigidBody>, Without<WreckerCursor>)>,
     impulse_settings: Res<ImpulseSettings>,
     window: Single<&Window>,
     camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
@@ -633,7 +727,7 @@ fn apply_force(
 
             // Set distance
             let distance = direction_vec.length();
-            info!("Distance: {}", distance);
+            // info!("Distance: {}", distance);
 
             // Check radius and avoid division by zero if distance is 0
             if distance > 0.0 && distance < impulse_settings.blast_radius {
@@ -641,7 +735,7 @@ fn apply_force(
                 let falloff = 1.0 - (distance / impulse_settings.blast_radius);
 
                 // Calculate the impulse vector: Direction * Max Force * Falloff
-                info!("Normalized direction vector: {}", direction_vec.normalize());
+                // info!("Normalized direction vector: {}", direction_vec.normalize());
                 let impulse = direction_vec.normalize() * impulse_settings.max_force * falloff;
 
                 // Apply the impulse
@@ -654,6 +748,14 @@ fn apply_force(
 
 fn set_impulse_cursor_visibility<const VISIBLE: bool>(
     mut query: Query<&mut Visibility, With<ImpulseCursor>>,
+) {
+    for mut visibility in & mut query {
+        *visibility = if VISIBLE { Visibility::Visible } else { Visibility::Hidden };
+    }
+}
+
+fn set_wrecker_cursor_visibility<const VISIBLE: bool>(
+    mut query: Query<&mut Visibility, With<WreckerCursor>>,
 ) {
     for mut visibility in & mut query {
         *visibility = if VISIBLE { Visibility::Visible } else { Visibility::Hidden };
@@ -708,6 +810,10 @@ fn interactive_menu(
                 let is_impulse_mode = interaction_mode.0 == InteractionModeType::Impulse;
                 if ui.selectable_label(is_impulse_mode, "Impulse Mode").clicked() {
                     interaction_mode.0 = InteractionModeType::Impulse;
+                }
+                let is_wrecker_mode = interaction_mode.0 == InteractionModeType::Wrecker;
+                if ui.selectable_label(is_wrecker_mode, "Wrecker Mode").clicked() {
+                    interaction_mode.0 = InteractionModeType::Wrecker;
                 }
             });
             if interaction_mode.0 == InteractionModeType::Impulse {
