@@ -174,7 +174,7 @@ fn main_menu_setup(
                     },
                     TextColor(Color::srgb(0.9, 0.9, 0.9)),
                     Node {
-                        margin: UiRect::all(px(50)),
+                        margin: UiRect::all(px(100)),
                         ..default()
                     },
                 ),
