@@ -3,7 +3,7 @@
     "generator": "Khronos glTF Blender I/O v4.5.49",
     "version": "2.0"
   },
-  "scene": 2,
+  "scene": 0,
   "scenes": [
     {
       "name": "flat-map",
@@ -42,11 +42,26 @@
     },
     {
       "mesh": 1,
-      "name": "Plane"
+      "name": "Plane",
+      "scale": [
+        10,
+        10,
+        10
+      ]
     },
     {
       "mesh": 2,
-      "name": "Cube"
+      "name": "Cube",
+      "scale": [
+        5,
+        0.5,
+        5
+      ],
+      "translation": [
+        0.5,
+        0.5,
+        0
+      ]
     },
     {
       "mesh": 3,
@@ -320,7 +335,7 @@
     },
     {
       "extras": {
-        "collider": "Cuboid",
+        "collider": "ConvexHull",
         "rigid_body": "Static"
       },
       "name": "Cube",
@@ -337,7 +352,7 @@
     },
     {
       "extras": {
-        "collider": "Cuboid",
+        "collider": "ConvexHull",
         "rigid_body": "Static"
       },
       "name": "Cube.001",
@@ -355,7 +370,7 @@
     },
     {
       "extras": {
-        "collider": "Cuboid",
+        "collider": "ConvexHull",
         "rigid_body": "Static"
       },
       "name": "Cube.002",
@@ -373,7 +388,7 @@
     },
     {
       "extras": {
-        "collider": "Cuboid",
+        "collider": "ConvexHull",
         "rigid_body": "Static"
       },
       "name": "Cube.003",
@@ -391,7 +406,7 @@
     },
     {
       "extras": {
-        "collider": "Cuboid",
+        "collider": "ConvexHull",
         "rigid_body": "Static"
       },
       "name": "Cube.004",

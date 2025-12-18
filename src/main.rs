@@ -2,6 +2,7 @@ mod peripherals;
 mod entity_pipeline;
 mod interaction_modes;
 mod interactive_menu;
+mod menu;
 
 use avian3d::{PhysicsPlugins, prelude::*};
 use bevy::{DefaultPlugins, color, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, prelude::* };
@@ -12,6 +13,14 @@ use bevy_framepace::*;
 use peripherals::*;
 use interaction_modes::*;
 use interactive_menu::*;
+
+// Enum that will be used as a global state for the game
+#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+enum GameState {
+    #[default]
+    Menu,
+    Game,
+}
 
 #[derive(Resource)]
 struct SetMaxFps {
@@ -43,7 +52,9 @@ fn main() {
         .insert_resource(CameraOrientation::default())
         .insert_resource(InteractionMode(InteractionModeType::Click))
         .insert_resource(CursorDistance(10.0)) // set cursor distance on spawn
+        .init_state::<GameState>()
         .add_systems(Startup, (setup, setup_camera))
+        .add_plugins(menu::menu_plugin)
         .add_systems(EguiPrimaryContextPass, interactive_menu)
         .add_systems(Update, (
             // spawn_cubes.run_if(on_timer(Duration::from_secs(1))),
@@ -111,7 +122,7 @@ fn setup(
 
     let impulse_ball = commands.spawn((
         SceneRoot(
-            asset_server.load(GltfAssetLabel::Scene(4).from_asset("shapes.glb"))
+            asset_server.load(GltfAssetLabel::Scene(5).from_asset("shapes.glb"))
         ),
         Transform::from_xyz(0.0, 0.0, 0.0),
         Visibility::Hidden,
