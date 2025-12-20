@@ -31,7 +31,7 @@ pub fn menu_plugin(
 
 /// State used for the current menu screen
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
-enum MenuState {
+pub enum MenuState {
     Main,
     Settings,
     SettingsDisplay,

@@ -1,10 +1,10 @@
 use avian3d::prelude::*;
 use bevy::{ color, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, prelude::* };
 use bevy_asset::{AssetServer};
-use bevy_egui::EguiPrimaryContextPass;
+use bevy_egui::{EguiPrimaryContextPass, EguiPlugin};
 use bevy_framepace::*;
 
-use crate::{peripherals::*, interaction_modes::*, interactive_menu::*};
+use crate::{game::pause_menu::InGameMenuState, interaction_modes::*, interactive_menu::*, peripherals::*};
 use super::SetMaxFps;
 
 use super::GameState;
@@ -22,11 +22,12 @@ pub fn game_plugin(
             sensitivity: 0.002,
             zoom_speed: 30.0,
         })
+        .add_plugins(EguiPlugin::default())
         .insert_resource(ImpulseSettings::default())
         .insert_resource(CameraOrientation::default())
         .insert_resource(InteractionMode(InteractionModeType::Click))
         .insert_resource(CursorDistance(10.0)) // set cursor distance on spawn
-        .add_systems(EguiPrimaryContextPass, interactive_menu)
+        .add_systems(EguiPrimaryContextPass, interactive_menu.run_if(in_state(GameState::Game)))
         .add_systems(Update, (
             // spawn_cubes.run_if(on_timer(Duration::from_secs(1))),
             keyboard_movement,
@@ -54,8 +55,11 @@ pub fn game_plugin(
             toggle_debug_render_state,
             set_max_fps,
             fps_counter,
-        ));
+            game_action,
+        ).run_if(in_state(GameState::Game)));
 }
+
+
 
 fn game_setup(
     mut commands: Commands,
@@ -63,6 +67,8 @@ fn game_setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+
+    commands.spawn(TogglePauseMenu::Disabled);
     // Light: bright white light
     commands.spawn((
         PointLight {
@@ -192,6 +198,35 @@ fn fps_counter(
     }
 }
 
+#[derive(Component)]
+pub enum TogglePauseMenu {
+    Enabled,
+    Disabled,
+}
+
+pub fn game_action(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut game_state: ResMut<NextState<GameState>>,
+    mut menu_state: ResMut<NextState<InGameMenuState>>,
+    mut menu_toggle_query: Query<&mut TogglePauseMenu>,
+) {
+    if keyboard_input.just_pressed(KeyCode::Escape) {
+        for mut menu_toggle in menu_toggle_query.iter_mut() {
+            *menu_toggle = match *menu_toggle {
+                TogglePauseMenu::Disabled => {
+                    game_state.set(GameState::Paused);
+                    TogglePauseMenu::Enabled
+                }
+                TogglePauseMenu::Enabled => {
+                    game_state.set(GameState::Game);
+                    menu_state.set(InGameMenuState::Disabled);
+                    TogglePauseMenu::Disabled
+                }
+            }
+        }
+    }
+}
+
 fn toggle_debug_render_state(
     // mut debug_render_state: ResMut<DebugRenderState>,
     mut gizmo_config_store: ResMut<GizmoConfigStore>,
@@ -201,5 +236,216 @@ fn toggle_debug_render_state(
         let (config, _) = gizmo_config_store
             .config_mut::<PhysicsGizmos>();
         config.enabled = !config.enabled;
+    }
+}
+
+
+
+pub mod pause_menu {
+    use bevy::{color, prelude::*};
+
+    use super::GameState;
+
+    use crate::{menu::MenuState, game::game_action};
+
+    pub fn pause_menu_plugin(
+        app: &mut App,
+    ) {
+        app
+            .init_state::<InGameMenuState>()
+            .add_systems(OnEnter(GameState::Paused), menu_setup)
+            .add_systems(OnEnter(InGameMenuState::Base), in_game_menu_setup)
+            .add_systems(Update, (menu_action, button_system, game_action).run_if(in_state(GameState::Paused)));
+    }
+
+    #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+    pub enum InGameMenuState {
+        Base,
+        Settings,
+        #[default]
+        Disabled,
+    }
+
+    /// Tag component used to tag entities added on the in game menu screen
+    #[derive(Component)]
+    struct OnInGameMenuScreen;
+
+    /// Tag component used to tag entities added on the settings menu screen
+    #[derive(Component)]
+    struct OnSettingsMenuScreen;
+
+    const NORMAL_BUTTON: Color = Color::srgb(0.15, 0.15, 0.15);
+    const HOVERED_BUTTON: Color = Color::srgb(0.25, 0.25, 0.25);
+    const HOVERED_PRESSED_BUTTON: Color = Color::srgb(0.25, 0.65, 0.25);
+    const PRESSED_BUTTON: Color = Color::srgb(0.35, 0.75, 0.35);
+
+    /// Tag component used to mark which setting is currently selected
+    #[derive(Component)]
+    struct SelectedOption;
+
+    /// All actions that can be triggered from a button click
+    #[derive(Component)]
+    enum InGameMenuButtonAction {
+        Resume,
+        Settings,
+        BackToInGameMenu,
+        BackToMainMenu,
+        Quit,
+    }
+
+    /// This system handles changing all buttons color based on mouse interaction
+    fn button_system(
+        mut interaction_query: Query<
+            (&Interaction, &mut BackgroundColor, Option<&SelectedOption>),
+            (Changed<Interaction>, With<Button>),
+        >,
+    ) {
+        for (interaction, mut background_color, selected) in &mut interaction_query {
+            *background_color = match (*interaction, selected) {
+                (Interaction::Pressed, _) | (Interaction::None, Some(_)) => PRESSED_BUTTON.into(),
+                (Interaction::Hovered, Some(_)) => HOVERED_PRESSED_BUTTON.into(),
+                (Interaction::Hovered, None) => HOVERED_BUTTON.into(),
+                (Interaction::None, None) => NORMAL_BUTTON.into(),
+            }
+        }
+    }
+
+    fn menu_setup(
+        mut menu_state: ResMut<NextState<InGameMenuState>>,
+    ) {
+        menu_state.set(InGameMenuState::Base);
+    }
+
+    fn in_game_menu_setup(
+        mut commands: Commands,
+        asset_server: Res<AssetServer>,
+    ) {
+        // Common style for all buttons on the screen
+        let button_node = Node {
+            width: px(300),
+            height: px(65),
+            margin: UiRect::all(px(20)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        };
+        let button_icon_node = Node {
+            width: px(30),
+            // This takes the idons our of the flexbox flow, to be positioned exactly
+            position_type: PositionType::Absolute,
+            // The icon will be close to the left border of the button
+            left: px(10),
+            ..default()
+        };
+        let button_text_font = TextFont {
+            font_size: 33.0,
+            ..default()
+        };
+
+        let right_icon = asset_server.load(r"icons\chevron_right_icon.png");
+        let settings_icon = asset_server.load(r"icons\settings_icon.png");
+        let exit_icon = asset_server.load(r"icons\logout_icon.png");
+
+        commands.spawn((
+            DespawnOnExit(InGameMenuState::Base),
+            Node {
+                width: percent(100),
+                height: percent(100),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            OnInGameMenuScreen,
+            children![(
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(color::palettes::css::CRIMSON.into()),
+                children![
+                    // Display the game name
+                    (
+                        Text::new("Rusty Physics"),
+                        TextFont {
+                            font_size: 67.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                        Node {
+                            margin: UiRect::all(px(100)),
+                            ..default()
+                        },
+                    ),
+                    // Display all buttons for each action available from the main menu
+                    (
+                        Button,
+                        button_node.clone(),
+                        BackgroundColor(NORMAL_BUTTON),
+                        InGameMenuButtonAction::Resume,
+                        children![
+                            (ImageNode::new(right_icon), button_icon_node.clone()),
+                            (
+                                Text::new("New Game"),
+                                button_text_font.clone(),
+                                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                            ),
+                        ]
+                    ),
+                    (
+                        Button,
+                        button_node.clone(),
+                        BackgroundColor(NORMAL_BUTTON),
+                        InGameMenuButtonAction::Settings,
+                        children![
+                            (ImageNode::new(settings_icon), button_icon_node.clone()),
+                            (
+                                Text::new("Settings"),
+                                button_text_font.clone(),
+                                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                            ),
+                        ]
+                    ),
+                    (
+                        Button,
+                        button_node,
+                        BackgroundColor(NORMAL_BUTTON),
+                        InGameMenuButtonAction::Quit,
+                        children![
+                            (ImageNode::new(exit_icon), button_icon_node),
+                            (Text::new("Quit"), button_text_font, TextColor(Color::srgb(0.9, 0.9, 0.9))),
+                        ]
+                    ),
+                ]
+            )],
+        ));
+    }
+
+    fn menu_action(
+        interaction_query: Query<
+            (&Interaction, &InGameMenuButtonAction),
+            (Changed<Interaction>, With<Button>),
+        >,
+        mut app_exit_writer: MessageWriter<AppExit>,
+        mut paused_menu_state: ResMut<NextState<InGameMenuState>>,
+        mut game_state: ResMut<NextState<GameState>>,
+        mut menu_state: ResMut<NextState<MenuState>>,
+    ) {
+        for (interaction, in_game_menu_button_action) in &interaction_query {
+            if *interaction == Interaction::Pressed {
+                match in_game_menu_button_action {
+                    InGameMenuButtonAction::Quit => {
+                        app_exit_writer.write(AppExit::Success);
+                    }
+                    InGameMenuButtonAction::Resume => {
+                        game_state.set(GameState::Game);
+                        paused_menu_state.set(InGameMenuState::Disabled);
+                    }
+                    InGameMenuButtonAction::Settings => paused_menu_state.set(InGameMenuState::Settings),
+                    InGameMenuButtonAction::BackToInGameMenu => paused_menu_state.set(InGameMenuState::Base),
+                    InGameMenuButtonAction::BackToMainMenu => menu_state.set(MenuState::Main),
+                }
+            }
+        }
     }
 }

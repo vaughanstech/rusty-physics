@@ -7,10 +7,10 @@ mod menu;
 
 use avian3d::{PhysicsPlugins, prelude::*};
 use bevy::{DefaultPlugins, diagnostic::{FrameTimeDiagnosticsPlugin}, prelude::* };
-use bevy_egui::EguiPlugin;
 use bevy_framepace::*;
 
 use peripherals::*;
+use crate::game::pause_menu;
 
 // Enum that will be used as a global state for the game
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
@@ -18,6 +18,7 @@ enum GameState {
     #[default]
     Menu,
     Game,
+    Paused,
 }
 
 #[derive(Resource)]
@@ -33,14 +34,13 @@ fn main() {
             FramepacePlugin,
             PhysicsPlugins::default(),
             PhysicsDebugPlugin::default(),
-            EguiPlugin::default(),
         ))
         .init_state::<GameState>()
         .insert_resource(SetMaxFps {
             fps: 120.0,
         })
         .add_systems(Startup, setup_camera)
-        .add_plugins((menu::menu_plugin, game::game_plugin))
+        .add_plugins((menu::menu_plugin, game::game_plugin, pause_menu::pause_menu_plugin))
         .run();
 }
 
