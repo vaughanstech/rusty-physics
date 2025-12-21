@@ -10,7 +10,7 @@ use bevy::{DefaultPlugins, diagnostic::{FrameTimeDiagnosticsPlugin}, prelude::* 
 use bevy_framepace::*;
 
 use peripherals::*;
-use crate::game::pause_menu;
+use crate::{game::pause_menu, interaction_modes::{InteractionMode, InteractionModeType}};
 
 // Enum that will be used as a global state for the game
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
@@ -41,6 +41,7 @@ fn main() {
         })
         .add_systems(Startup, setup_camera)
         .add_plugins((menu::menu_plugin, game::game_plugin, pause_menu::pause_menu_plugin))
+        .add_systems(Update, (game::set_max_fps, game::fps_counter))
         .run();
 }
 

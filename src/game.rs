@@ -10,13 +10,13 @@ use super::SetMaxFps;
 use super::GameState;
 
 #[derive(Component)]
-struct FpsText;
+pub struct FpsText;
 
 pub fn game_plugin(
     app: &mut App,
 ) {
     app
-        .add_systems(OnEnter(GameState::Game), game_setup)
+        .add_systems(Startup, game_setup)
         .insert_resource(CameraSettings {
             speed: 8.0,
             sensitivity: 0.002,
@@ -25,8 +25,8 @@ pub fn game_plugin(
         .add_plugins(EguiPlugin::default())
         .insert_resource(ImpulseSettings::default())
         .insert_resource(CameraOrientation::default())
-        .insert_resource(InteractionMode(InteractionModeType::Click))
         .insert_resource(CursorDistance(10.0)) // set cursor distance on spawn
+        .insert_resource(InteractionMode(InteractionModeType::Click))
         .add_systems(EguiPrimaryContextPass, interactive_menu.run_if(in_state(GameState::Game)))
         .add_systems(Update, (
             // spawn_cubes.run_if(on_timer(Duration::from_secs(1))),
@@ -53,13 +53,9 @@ pub fn game_plugin(
                 set_wrecker_cursor_visibility::<true>,
             ).run_if(resource_equals(InteractionMode(InteractionModeType::Wrecker))),
             toggle_debug_render_state,
-            set_max_fps,
-            fps_counter,
             game_action,
         ).run_if(in_state(GameState::Game)));
 }
-
-
 
 fn game_setup(
     mut commands: Commands,
@@ -68,7 +64,6 @@ fn game_setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
 
-    commands.spawn(TogglePauseMenu::Disabled);
     // Light: bright white light
     commands.spawn((
         PointLight {
@@ -172,7 +167,7 @@ fn game_setup(
 }
 
 /// Set the max framerate limit
-fn set_max_fps(
+pub fn set_max_fps(
     mut commands: Commands,
     mut settings: ResMut<FramepaceSettings>,
     fps_limit: Res<SetMaxFps>,
@@ -184,7 +179,7 @@ fn set_max_fps(
 }
 
 /// Tracks frames per second
-fn fps_counter(
+pub fn fps_counter(
     diagnostics: Res<DiagnosticsStore>,
     mut query: Query<&mut TextSpan, With<FpsText>>,
 ) {
@@ -198,32 +193,49 @@ fn fps_counter(
     }
 }
 
-#[derive(Component)]
-pub enum TogglePauseMenu {
-    Enabled,
+#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+pub enum InGameState {
+    Playing,
+    #[default]
     Disabled,
 }
 
+/// Cross-system function used to toggle between the Game state and the Pause state
 pub fn game_action(
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    state: Res<State<GameState>>,
     mut game_state: ResMut<NextState<GameState>>,
     mut menu_state: ResMut<NextState<InGameMenuState>>,
-    mut menu_toggle_query: Query<&mut TogglePauseMenu>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Escape) {
-        for mut menu_toggle in menu_toggle_query.iter_mut() {
-            *menu_toggle = match *menu_toggle {
-                TogglePauseMenu::Disabled => {
-                    game_state.set(GameState::Paused);
-                    TogglePauseMenu::Enabled
-                }
-                TogglePauseMenu::Enabled => {
-                    game_state.set(GameState::Game);
-                    menu_state.set(InGameMenuState::Disabled);
-                    TogglePauseMenu::Disabled
-                }
+        match state.get() {
+            GameState::Game => {
+                game_state.set(GameState::Paused);
+                
+                info!("Pausing Game");
             }
+            GameState::Paused => {
+                game_state.set(GameState::Game);
+                menu_state.set(InGameMenuState::Disabled);
+                info!("Resuming Game");
+            }
+            _ => {}
         }
+        // for mut menu_toggle in menu_toggle_query.iter_mut() {
+        //     *menu_toggle = match *menu_toggle {
+        //         TogglePauseMenu::Disabled => {
+        //             game_state.set(GameState::Paused);
+        //             info!("Game state = Paused");
+        //             TogglePauseMenu::Enabled
+        //         }
+        //         TogglePauseMenu::Enabled => {
+        //             game_state.set(GameState::Game);
+        //             menu_state.set(InGameMenuState::Disabled);
+        //             info!("Game state = Game");
+        //             TogglePauseMenu::Disabled
+        //         }
+        //     }
+        // }
     }
 }
 
@@ -239,8 +251,6 @@ fn toggle_debug_render_state(
     }
 }
 
-
-
 pub mod pause_menu {
     use bevy::{color, prelude::*};
 
@@ -248,6 +258,7 @@ pub mod pause_menu {
 
     use crate::{menu::MenuState, game::game_action};
 
+    /// This plugin manages the in-game Pause menu
     pub fn pause_menu_plugin(
         app: &mut App,
     ) {
@@ -258,6 +269,7 @@ pub mod pause_menu {
             .add_systems(Update, (menu_action, button_system, game_action).run_if(in_state(GameState::Paused)));
     }
 
+    /// State used for the current pause menu screen
     #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
     pub enum InGameMenuState {
         Base,
@@ -266,11 +278,11 @@ pub mod pause_menu {
         Disabled,
     }
 
-    /// Tag component used to tag entities added on the in game menu screen
+    /// Tag component used to tag entities added on the in-game menu screen
     #[derive(Component)]
     struct OnInGameMenuScreen;
 
-    /// Tag component used to tag entities added on the settings menu screen
+    /// Tag component used to tag entities added on the in-game settings menu screen
     #[derive(Component)]
     struct OnSettingsMenuScreen;
 
@@ -338,7 +350,7 @@ pub mod pause_menu {
             ..default()
         };
         let button_text_font = TextFont {
-            font_size: 33.0,
+            font_size: 20.0,
             ..default()
         };
 
@@ -349,26 +361,31 @@ pub mod pause_menu {
         commands.spawn((
             DespawnOnExit(InGameMenuState::Base),
             Node {
-                width: percent(100),
-                height: percent(100),
-                align_items: AlignItems::Center,
+                width: Val::Auto,
+                height: vh(100),
+                margin: UiRect {left: Val::Auto, ..Default::default()},
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::FlexEnd,
                 justify_content: JustifyContent::Center,
                 ..default()
             },
+            BackgroundColor(color::palettes::css::CRIMSON.into()),
             OnInGameMenuScreen,
             children![(
                 Node {
+                    display: Display::Flex,
                     flex_direction: FlexDirection::Column,
                     align_items: AlignItems::Center,
                     ..default()
                 },
-                BackgroundColor(color::palettes::css::CRIMSON.into()),
+                // BackgroundColor(color::palettes::css::CRIMSON.into()),
                 children![
                     // Display the game name
                     (
                         Text::new("Rusty Physics"),
                         TextFont {
-                            font_size: 67.0,
+                            font_size: 50.0,
                             ..default()
                         },
                         TextColor(Color::srgb(0.9, 0.9, 0.9)),
