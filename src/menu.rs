@@ -150,12 +150,13 @@ fn main_menu_setup(
     commands.spawn((
         DespawnOnExit(MenuState::Main),
         Node {
-            width: percent(100),
-            height: percent(100),
+            width: vw(100),
+            height: vh(100),
             align_items: AlignItems::Center,
             justify_content: JustifyContent::Center,
             ..default()
         },
+        BackgroundColor(color::palettes::css::CRIMSON.into()),
         OnMainMenuScreen,
         children![(
             Node {
@@ -163,7 +164,6 @@ fn main_menu_setup(
                 align_items: AlignItems::Center,
                 ..default()
             },
-            BackgroundColor(color::palettes::css::CRIMSON.into()),
             children![
                 // Display the game name
                 (
