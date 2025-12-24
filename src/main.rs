@@ -10,7 +10,7 @@ use bevy::{DefaultPlugins, diagnostic::{FrameTimeDiagnosticsPlugin}, prelude::* 
 use bevy_framepace::*;
 
 use peripherals::*;
-use crate::{game::pause_menu, interaction_modes::{InteractionMode, InteractionModeType}};
+use crate::game::pause_menu;
 
 // Enum that will be used as a global state for the game
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
@@ -21,10 +21,14 @@ enum GameState {
     Paused,
 }
 
-#[derive(Resource)]
-struct SetMaxFps {
-    fps: f64,
+#[derive(Resource, Debug, Component, PartialEq, Eq, Clone, Copy)]
+enum SetFps {
+    Low,
+    Medium,
+    High,
+    Uncapped,
 }
+
 
 fn main() {
     App::new()
@@ -36,9 +40,7 @@ fn main() {
             PhysicsDebugPlugin::default(),
         ))
         .init_state::<GameState>()
-        .insert_resource(SetMaxFps {
-            fps: 120.0,
-        })
+        .insert_resource(SetFps::Medium)
         .add_systems(Startup, setup_camera)
         .add_plugins((menu::menu_plugin, game::game_plugin, pause_menu::pause_menu_plugin))
         .add_systems(Update, (game::set_max_fps, game::fps_counter))

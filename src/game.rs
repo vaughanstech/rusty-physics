@@ -5,7 +5,7 @@ use bevy_egui::{EguiPrimaryContextPass, EguiPlugin};
 use bevy_framepace::*;
 
 use crate::{game::pause_menu::InGameMenuState, interaction_modes::*, interactive_menu::*, peripherals::*};
-use super::SetMaxFps;
+use super::SetFps;
 
 use super::GameState;
 
@@ -170,12 +170,23 @@ fn game_setup(
 pub fn set_max_fps(
     mut commands: Commands,
     mut settings: ResMut<FramepaceSettings>,
-    fps_limit: Res<SetMaxFps>,
+    fps_limit: Res<SetFps>,
 ) {
-    // Setting the Physics time equal to the max framerate
-    commands.insert_resource(Time::<Fixed>::from_hz(fps_limit.fps));
+    let fps = match *fps_limit {
+        SetFps::Low => 30.0,
+        SetFps::Medium => 60.0,
+        SetFps::High => 120.0,
+        SetFps::Uncapped => 0.0,
+    };
+    
     // Actually setting global max fps
-    settings.limiter = Limiter::from_framerate(fps_limit.fps);
+    if *fps_limit == SetFps::Uncapped {
+        settings.limiter = Limiter::Off;
+    } else {
+        // Setting the Physics time equal to the max framerate
+        commands.insert_resource(Time::<Fixed>::from_hz(fps));
+        settings.limiter = Limiter::from_framerate(fps);
+    }
 }
 
 /// Tracks frames per second
@@ -191,13 +202,6 @@ pub fn fps_counter(
             **span = format!("{value:.2}");
         }
     }
-}
-
-#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
-pub enum InGameState {
-    Playing,
-    #[default]
-    Disabled,
 }
 
 /// Cross-system function used to toggle between the Game state and the Pause state
@@ -253,10 +257,9 @@ fn toggle_debug_render_state(
 
 pub mod pause_menu {
     use bevy::{color, prelude::*};
-
     use super::GameState;
 
-    use crate::{menu::MenuState, game::game_action};
+    use crate::{SetFps, game::game_action, menu::MenuState};
 
     /// This plugin manages the in-game Pause menu
     pub fn pause_menu_plugin(
@@ -266,7 +269,9 @@ pub mod pause_menu {
             .init_state::<InGameMenuState>()
             .add_systems(OnEnter(GameState::Paused), menu_setup)
             .add_systems(OnEnter(InGameMenuState::Base), in_game_menu_setup)
-            .add_systems(Update, (menu_action, button_system, game_action).run_if(in_state(GameState::Paused)));
+            .add_systems(Update, (menu_action, button_system, game_action).run_if(in_state(GameState::Paused)))
+            .add_systems(OnEnter(InGameMenuState::Settings), in_game_settings_menu_setup)
+            .add_systems(Update, setting_button::<SetFps>.run_if(in_state(InGameMenuState::Settings)));
     }
 
     /// State used for the current pause menu screen
@@ -322,6 +327,26 @@ pub mod pause_menu {
         }
     }
 
+    // This system updates the settings when a new value for a setting is selected, and marks
+    // the button as the one currently selected
+    fn setting_button<T: Resource + Component + PartialEq + Copy>(
+        interaction_query: Query<(&Interaction, &T, Entity), (Changed<Interaction>, With<Button>)>,
+        selected_query: Single<(Entity, &mut BackgroundColor), With<SelectedOption>>,
+        mut commands: Commands,
+        mut setting: ResMut<T>,
+    ) {
+        let (previous_button, mut previous_button_color) = selected_query.into_inner();
+        for (interaction, button_setting, entity) in &interaction_query {
+            if *interaction == Interaction::Pressed && *setting != *button_setting {
+                *previous_button_color = NORMAL_BUTTON.into();
+                commands.entity(previous_button).remove::<SelectedOption>();
+                commands.entity(entity).insert(SelectedOption);
+                *setting = *button_setting;
+            }
+        }
+    }
+
+
     fn menu_setup(
         mut menu_state: ResMut<NextState<InGameMenuState>>,
     ) {
@@ -355,6 +380,7 @@ pub mod pause_menu {
         };
 
         let right_icon = asset_server.load(r"icons\chevron_right_icon.png");
+        let home_icon = asset_server.load(r"icons\home_icon.png");
         let settings_icon = asset_server.load(r"icons\settings_icon.png");
         let exit_icon = asset_server.load(r"icons\logout_icon.png");
 
@@ -403,7 +429,7 @@ pub mod pause_menu {
                         children![
                             (ImageNode::new(right_icon), button_icon_node.clone()),
                             (
-                                Text::new("New Game"),
+                                Text::new("Resume Game"),
                                 button_text_font.clone(),
                                 TextColor(Color::srgb(0.9, 0.9, 0.9)),
                             ),
@@ -425,6 +451,20 @@ pub mod pause_menu {
                     ),
                     (
                         Button,
+                        button_node.clone(),
+                        BackgroundColor(NORMAL_BUTTON),
+                        InGameMenuButtonAction::BackToMainMenu,
+                        children![
+                            (ImageNode::new(home_icon), button_icon_node.clone()),
+                            (
+                                Text::new("Back To Main Menu"),
+                                button_text_font.clone(),
+                                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                            ),
+                        ]
+                    ),
+                    (
+                        Button,
                         button_node,
                         BackgroundColor(NORMAL_BUTTON),
                         InGameMenuButtonAction::Quit,
@@ -435,6 +475,100 @@ pub mod pause_menu {
                     ),
                 ]
             )],
+        ));
+    }
+
+    fn in_game_settings_menu_setup(
+        mut commands: Commands,
+        fps_limit: Res<SetFps>,
+    ) {
+        fn button_node() -> Node {
+            Node {
+                width: px(200),
+                height: px(65),
+                margin: UiRect::all(px(20)),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            }
+        }
+        fn button_text_style() -> impl Bundle {
+            (
+                TextFont {
+                    font_size: 33.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+            )
+        }
+
+        let fps_limit = *fps_limit;
+        commands.spawn((
+            DespawnOnExit(InGameMenuState::Settings),
+            Node {
+                width: percent(100),
+                height: percent(100),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(color::palettes::css::CRIMSON.into()),
+            OnSettingsMenuScreen,
+            children![(
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                children![
+                    // Creating a new `Node`, this time not setting its `flex_direction`
+                    // Use the default value, `FlexDirection::Row`, from left to right.
+                    (
+                        Node {
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        BackgroundColor(color::palettes::css::CRIMSON.into()),
+                        Children::spawn((
+                            // Display a label for the current setting
+                            Spawn((Text::new("FPS Limit"), button_text_style())),
+                            SpawnWith(move |parent: &mut ChildSpawner| {
+                                for fps_setting in [
+                                    SetFps::Low,
+                                    SetFps::Medium,
+                                    SetFps::High,
+                                    SetFps::Uncapped,
+                                ] {
+                                    let mut entity = parent.spawn((
+                                        Button,
+                                        Node {
+                                            width: px(150),
+                                            height: px(65),
+                                            ..button_node()
+                                        },
+                                        BackgroundColor(NORMAL_BUTTON),
+                                        fps_setting,
+                                        children![(
+                                            Text::new(format!("{fps_setting:?}")),
+                                            button_text_style(),
+                                        )],
+                                    ));
+                                    if fps_limit == fps_setting {
+                                        entity.insert(SelectedOption);
+                                    }
+                                }
+                            })
+                        ))
+                    ),
+                    (
+                        Button,
+                        button_node(),
+                        BackgroundColor(NORMAL_BUTTON),
+                        InGameMenuButtonAction::BackToInGameMenu,
+                        children![(Text::new("Back"), button_text_style())]
+                    )
+                ]
+            )]
         ));
     }
 
@@ -460,7 +594,11 @@ pub mod pause_menu {
                     }
                     InGameMenuButtonAction::Settings => paused_menu_state.set(InGameMenuState::Settings),
                     InGameMenuButtonAction::BackToInGameMenu => paused_menu_state.set(InGameMenuState::Base),
-                    InGameMenuButtonAction::BackToMainMenu => menu_state.set(MenuState::Main),
+                    InGameMenuButtonAction::BackToMainMenu => {
+                        game_state.set(GameState::Menu);
+                        menu_state.set(MenuState::Main);
+                        paused_menu_state.set(InGameMenuState::Disabled);
+                    }
                 }
             }
         }
