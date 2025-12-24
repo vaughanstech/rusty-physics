@@ -1,5 +1,7 @@
 use bevy::{color, prelude::*};
 
+use crate::SetFps;
+
 use super::GameState;
 
 // This plugin manages the menu
@@ -26,7 +28,9 @@ pub fn menu_plugin(
         .add_systems(
             Update,
             (menu_action, button_system).run_if(in_state(GameState::Menu)),
-        );
+        )
+        .add_systems(OnEnter(MenuState::Settings), in_game_settings_menu_setup)
+        .add_systems(Update, setting_button::<SetFps>.run_if(in_state(MenuState::Settings)));
 }
 
 /// State used for the current menu screen
@@ -34,8 +38,6 @@ pub fn menu_plugin(
 pub enum MenuState {
     Main,
     Settings,
-    SettingsDisplay,
-    SettingsSound,
     #[default]
     Disabled,
 }
@@ -47,14 +49,6 @@ struct OnMainMenuScreen;
 /// Tag component used to tag entities added on the settings menu screen
 #[derive(Component)]
 struct OnSettingsMenuScreen;
-
-/// Tag component used to tag entities added on the display settings menu screen
-#[derive(Component)]
-struct OnDisplaySettingsMenuScreen;
-
-/// Tag component used to tag entities added on the sound settings menu screen
-#[derive(Component)]
-struct OnSoundsSettingsMenuScreen;
 
 const NORMAL_BUTTON: Color = Color::srgb(0.15, 0.15, 0.15);
 const HOVERED_BUTTON: Color = Color::srgb(0.25, 0.25, 0.25);
@@ -70,10 +64,7 @@ struct SelectedOption;
 enum MenuButtonAction {
     Play,
     Settings,
-    SettingsDisplay,
-    SettingsSound,
     BackToMainMenu,
-    BackToSettings,
     Quit,
 }
 
@@ -222,6 +213,100 @@ fn main_menu_setup(
     ));
 }
 
+fn in_game_settings_menu_setup(
+    mut commands: Commands,
+    fps_limit: Res<SetFps>,
+) {
+    fn button_node() -> Node {
+        Node {
+            width: px(200),
+            height: px(65),
+            margin: UiRect::all(px(20)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        }
+    }
+    fn button_text_style() -> impl Bundle {
+        (
+            TextFont {
+                font_size: 33.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.9, 0.9, 0.9)),
+        )
+    }
+
+    let fps_limit = *fps_limit;
+    commands.spawn((
+        DespawnOnExit(MenuState::Settings),
+        Node {
+            width: percent(100),
+            height: percent(100),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        BackgroundColor(color::palettes::css::CRIMSON.into()),
+        OnSettingsMenuScreen,
+        children![(
+            Node {
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            children![
+                // Creating a new `Node`, this time not setting its `flex_direction`
+                // Use the default value, `FlexDirection::Row`, from left to right.
+                (
+                    Node {
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BackgroundColor(color::palettes::css::CRIMSON.into()),
+                    Children::spawn((
+                        // Display a label for the current setting
+                        Spawn((Text::new("FPS Limit"), button_text_style())),
+                        SpawnWith(move |parent: &mut ChildSpawner| {
+                            for fps_setting in [
+                                SetFps::Low,
+                                SetFps::Medium,
+                                SetFps::High,
+                                SetFps::Uncapped,
+                            ] {
+                                let mut entity = parent.spawn((
+                                    Button,
+                                    Node {
+                                        width: px(150),
+                                        height: px(65),
+                                        ..button_node()
+                                    },
+                                    BackgroundColor(NORMAL_BUTTON),
+                                    fps_setting,
+                                    children![(
+                                        Text::new(format!("{fps_setting:?}")),
+                                        button_text_style(),
+                                    )],
+                                ));
+                                if fps_limit == fps_setting {
+                                    entity.insert(SelectedOption);
+                                }
+                            }
+                        })
+                    ))
+                ),
+                (
+                    Button,
+                    button_node(),
+                    BackgroundColor(NORMAL_BUTTON),
+                    MenuButtonAction::BackToMainMenu,
+                    children![(Text::new("Back"), button_text_style())]
+                )
+            ]
+        )]
+    ));
+}
+
 fn menu_action(
     interaction_query: Query<
         (&Interaction, &MenuButtonAction),
@@ -242,16 +327,7 @@ fn menu_action(
                     menu_state.set(MenuState::Disabled);
                 }
                 MenuButtonAction::Settings => menu_state.set(MenuState::Settings),
-                MenuButtonAction::SettingsDisplay => {
-                    menu_state.set(MenuState::SettingsDisplay);
-                }
-                MenuButtonAction::SettingsSound => {
-                    menu_state.set(MenuState::SettingsSound);
-                }
                 MenuButtonAction::BackToMainMenu => menu_state.set(MenuState::Main),
-                MenuButtonAction::BackToSettings => {
-                    menu_state.set(MenuState::Settings);
-                }
             }
         }
     }
