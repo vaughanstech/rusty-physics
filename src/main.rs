@@ -1,16 +1,13 @@
-mod peripherals;
 mod entity_pipeline;
 mod game;
-mod interaction_modes;
-mod interactive_menu;
-mod menu;
+mod interactions;
+mod menus;
 
 use avian3d::{PhysicsPlugins, prelude::*};
 use bevy::{DefaultPlugins, diagnostic::{FrameTimeDiagnosticsPlugin}, prelude::* };
 use bevy_framepace::*;
 
-use peripherals::*;
-use crate::game::pause_menu;
+use crate::game::setup_camera;
 
 // Enum that will be used as a global state for the game
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
@@ -42,13 +39,7 @@ fn main() {
         .init_state::<GameState>()
         .insert_resource(SetFps::Medium)
         .add_systems(Startup, setup_camera)
-        .add_plugins((menu::menu_plugin, game::game_plugin, pause_menu::pause_menu_plugin))
+        .add_plugins((menus::main_menu::menu_plugin, game::game_plugin, menus::pause_menu::pause_menu_plugin))
         .add_systems(Update, (game::set_max_fps, game::fps_counter))
         .run();
 }
-
-// fn setup(
-//     mut commands: Commands,
-// ) {
-//     commands.spawn(Camera2d);
-// }

@@ -4,7 +4,7 @@ use bevy_asset::{AssetServer};
 use bevy_egui::{EguiPrimaryContextPass, EguiPlugin};
 use bevy_framepace::*;
 
-use crate::{game::pause_menu::InGameMenuState, interaction_modes::*, interactive_menu::*, peripherals::*};
+use crate::{menus::pause_menu::InGameMenuState, interactions::*, interactions::interactive_menu::*};
 use super::SetFps;
 
 use super::GameState;
@@ -255,352 +255,180 @@ fn toggle_debug_render_state(
     }
 }
 
-pub mod pause_menu {
-    use bevy::{color, prelude::*};
-    use super::GameState;
+use bevy::input::mouse::{MouseMotion, MouseWheel};
 
-    use crate::{SetFps, game::game_action, menu::MenuState};
+#[derive(Component)]
+enum ExampleViewports {
+    _PerspectiveMain,
+    _PerspectiveStretched,
+    _PerspectiveMoving,
+    _PerspectiveControl,
+    _OrthographicMain,
+    _OrthographicStretched,
+    _OrthographicMoving,
+    _OrthographicControl,
+}
 
-    /// This plugin manages the in-game Pause menu
-    pub fn pause_menu_plugin(
-        app: &mut App,
-    ) {
-        app
-            .init_state::<InGameMenuState>()
-            .add_systems(OnEnter(GameState::Paused), menu_setup)
-            .add_systems(OnEnter(InGameMenuState::Base), in_game_menu_setup)
-            .add_systems(Update, (menu_action, button_system, game_action).run_if(in_state(GameState::Paused)))
-            .add_systems(OnEnter(InGameMenuState::Settings), in_game_settings_menu_setup)
-            .add_systems(Update, setting_button::<SetFps>.run_if(in_state(InGameMenuState::Settings)));
-    }
+#[derive(Component)]
+pub struct FlyCamera;
 
-    /// State used for the current pause menu screen
-    #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
-    pub enum InGameMenuState {
-        Base,
-        Settings,
-        #[default]
-        Disabled,
-    }
+#[derive(Resource)]
+pub struct CameraSettings {
+    pub speed: f32, // camera movement speed
+    pub sensitivity: f32, // mouse movement sensitivity
+    pub zoom_speed: f32, // mouse scroll sensitivity
+}
 
-    /// Tag component used to tag entities added on the in-game menu screen
-    #[derive(Component)]
-    struct OnInGameMenuScreen;
+#[derive(Resource, Default)]
+pub struct CameraOrientation {
+    pub yaw: f32,
+    pub pitch: f32,
+}
 
-    /// Tag component used to tag entities added on the in-game settings menu screen
-    #[derive(Component)]
-    struct OnSettingsMenuScreen;
+#[derive(Resource)]
+pub struct CursorDistance(pub f32);
 
-    const NORMAL_BUTTON: Color = Color::srgb(0.15, 0.15, 0.15);
-    const HOVERED_BUTTON: Color = Color::srgb(0.25, 0.25, 0.25);
-    const HOVERED_PRESSED_BUTTON: Color = Color::srgb(0.25, 0.65, 0.25);
-    const PRESSED_BUTTON: Color = Color::srgb(0.35, 0.75, 0.35);
+/// Initializes 3D camera
+pub fn setup_camera(
+    mut commands: Commands,
+    mut orientation: ResMut<CameraOrientation>,
+) {
+    let position = Vec3::new(0.0, 10.0, 20.0);
 
-    /// Tag component used to mark which setting is currently selected
-    #[derive(Component)]
-    struct SelectedOption;
+    // Initializing Camera Orientation:
+    // - Calculate yaw and pitch from the camera's starting Transform and use those values to initialize the CameraOrientation resource
 
-    /// All actions that can be triggered from a button click
-    #[derive(Component)]
-    enum InGameMenuButtonAction {
-        Resume,
-        Settings,
-        BackToInGameMenu,
-        BackToMainMenu,
-        Quit,
-    }
+    // Yaw (Y-axis rotation, horizontal look)
+    orientation.yaw = 0.0;
 
-    /// This system handles changing all buttons color based on mouse interaction
-    fn button_system(
-        mut interaction_query: Query<
-            (&Interaction, &mut BackgroundColor, Option<&SelectedOption>),
-            (Changed<Interaction>, With<Button>),
-        >,
-    ) {
-        for (interaction, mut background_color, selected) in &mut interaction_query {
-            *background_color = match (*interaction, selected) {
-                (Interaction::Pressed, _) | (Interaction::None, Some(_)) => PRESSED_BUTTON.into(),
-                (Interaction::Hovered, Some(_)) => HOVERED_PRESSED_BUTTON.into(),
-                (Interaction::Hovered, None) => HOVERED_BUTTON.into(),
-                (Interaction::None, None) => NORMAL_BUTTON.into(),
-            }
+    // Pitch (X-axis rotation, vertical look)
+    // let horizontal_length = Vec2::new(direction.x, direction.z).length();
+    orientation.pitch = 0.0;
+
+    // Construct the rotation from the calculated yaw and pitch
+    let rotation = Quat::from_axis_angle(Vec3::Y, orientation.yaw) * Quat::from_axis_angle(Vec3::X, orientation.pitch);
+
+    // Create the initial transform using the calculated position
+    let transform = Transform::from_translation(position).with_rotation(rotation);
+    
+    // Camera: initially positioned above and looking at origin
+    commands.spawn((
+        Camera3d::default(),
+        ExampleViewports::_PerspectiveMain,
+        transform,
+        FlyCamera,
+        // DebugRender::default().with_collider_color(Color::srgb(1.0, 0.0, 0.0)),
+    ));
+}
+
+/// Handles keyboard input for movement
+pub fn keyboard_movement(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    settings: Res<CameraSettings>,
+    mut query: Query<&mut Transform, With<FlyCamera>>,
+) {
+    for mut transform in &mut query {
+        let mut direction = Vec3::ZERO;
+
+        // local forward and right vectors relative to camera
+        let forward = -transform.local_z();
+        let right = transform.right();
+
+        // WASD movement
+        if keyboard_input.pressed(KeyCode::KeyW) {
+            direction += *forward;
         }
-    }
-
-    // This system updates the settings when a new value for a setting is selected, and marks
-    // the button as the one currently selected
-    fn setting_button<T: Resource + Component + PartialEq + Copy>(
-        interaction_query: Query<(&Interaction, &T, Entity), (Changed<Interaction>, With<Button>)>,
-        selected_query: Single<(Entity, &mut BackgroundColor), With<SelectedOption>>,
-        mut commands: Commands,
-        mut setting: ResMut<T>,
-    ) {
-        let (previous_button, mut previous_button_color) = selected_query.into_inner();
-        for (interaction, button_setting, entity) in &interaction_query {
-            if *interaction == Interaction::Pressed && *setting != *button_setting {
-                *previous_button_color = NORMAL_BUTTON.into();
-                commands.entity(previous_button).remove::<SelectedOption>();
-                commands.entity(entity).insert(SelectedOption);
-                *setting = *button_setting;
-            }
+        if keyboard_input.pressed(KeyCode::KeyS) {
+            direction -= *forward;
         }
-    }
-
-
-    fn menu_setup(
-        mut menu_state: ResMut<NextState<InGameMenuState>>,
-    ) {
-        menu_state.set(InGameMenuState::Base);
-    }
-
-    fn in_game_menu_setup(
-        mut commands: Commands,
-        asset_server: Res<AssetServer>,
-    ) {
-        // Common style for all buttons on the screen
-        let button_node = Node {
-            width: px(300),
-            height: px(65),
-            margin: UiRect::all(px(20)),
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            ..default()
-        };
-        let button_icon_node = Node {
-            width: px(30),
-            // This takes the idons our of the flexbox flow, to be positioned exactly
-            position_type: PositionType::Absolute,
-            // The icon will be close to the left border of the button
-            left: px(10),
-            ..default()
-        };
-        let button_text_font = TextFont {
-            font_size: 20.0,
-            ..default()
-        };
-
-        let right_icon = asset_server.load(r"icons\chevron_right_icon.png");
-        let home_icon = asset_server.load(r"icons\home_icon.png");
-        let settings_icon = asset_server.load(r"icons\settings_icon.png");
-        let exit_icon = asset_server.load(r"icons\logout_icon.png");
-
-        commands.spawn((
-            DespawnOnExit(InGameMenuState::Base),
-            Node {
-                width: Val::Auto,
-                height: vh(100),
-                margin: UiRect {left: Val::Auto, ..Default::default()},
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::FlexEnd,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            BackgroundColor(color::palettes::css::CRIMSON.into()),
-            OnInGameMenuScreen,
-            children![(
-                Node {
-                    display: Display::Flex,
-                    flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                // BackgroundColor(color::palettes::css::CRIMSON.into()),
-                children![
-                    // Display the game name
-                    (
-                        Text::new("Rusty Physics"),
-                        TextFont {
-                            font_size: 50.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                        Node {
-                            margin: UiRect::all(px(100)),
-                            ..default()
-                        },
-                    ),
-                    // Display all buttons for each action available from the main menu
-                    (
-                        Button,
-                        button_node.clone(),
-                        BackgroundColor(NORMAL_BUTTON),
-                        InGameMenuButtonAction::Resume,
-                        children![
-                            (ImageNode::new(right_icon), button_icon_node.clone()),
-                            (
-                                Text::new("Resume Game"),
-                                button_text_font.clone(),
-                                TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                            ),
-                        ]
-                    ),
-                    (
-                        Button,
-                        button_node.clone(),
-                        BackgroundColor(NORMAL_BUTTON),
-                        InGameMenuButtonAction::Settings,
-                        children![
-                            (ImageNode::new(settings_icon), button_icon_node.clone()),
-                            (
-                                Text::new("Settings"),
-                                button_text_font.clone(),
-                                TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                            ),
-                        ]
-                    ),
-                    (
-                        Button,
-                        button_node.clone(),
-                        BackgroundColor(NORMAL_BUTTON),
-                        InGameMenuButtonAction::BackToMainMenu,
-                        children![
-                            (ImageNode::new(home_icon), button_icon_node.clone()),
-                            (
-                                Text::new("Back To Main Menu"),
-                                button_text_font.clone(),
-                                TextColor(Color::srgb(0.9, 0.9, 0.9)),
-                            ),
-                        ]
-                    ),
-                    (
-                        Button,
-                        button_node,
-                        BackgroundColor(NORMAL_BUTTON),
-                        InGameMenuButtonAction::Quit,
-                        children![
-                            (ImageNode::new(exit_icon), button_icon_node),
-                            (Text::new("Quit"), button_text_font, TextColor(Color::srgb(0.9, 0.9, 0.9))),
-                        ]
-                    ),
-                ]
-            )],
-        ));
-    }
-
-    fn in_game_settings_menu_setup(
-        mut commands: Commands,
-        fps_limit: Res<SetFps>,
-    ) {
-        fn button_node() -> Node {
-            Node {
-                width: px(200),
-                height: px(65),
-                margin: UiRect::all(px(20)),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            }
+        if keyboard_input.pressed(KeyCode::KeyA) {
+            direction -= *right;
         }
-        fn button_text_style() -> impl Bundle {
-            (
-                TextFont {
-                    font_size: 33.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.9, 0.9, 0.9)),
-            )
+        if keyboard_input.pressed(KeyCode::KeyD) {
+            direction += *right;
         }
 
-        let fps_limit = *fps_limit;
-        commands.spawn((
-            DespawnOnExit(InGameMenuState::Settings),
-            Node {
-                width: percent(100),
-                height: percent(100),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            BackgroundColor(color::palettes::css::CRIMSON.into()),
-            OnSettingsMenuScreen,
-            children![(
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                children![
-                    // Creating a new `Node`, this time not setting its `flex_direction`
-                    // Use the default value, `FlexDirection::Row`, from left to right.
-                    (
-                        Node {
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                        BackgroundColor(color::palettes::css::CRIMSON.into()),
-                        Children::spawn((
-                            // Display a label for the current setting
-                            Spawn((Text::new("FPS Limit"), button_text_style())),
-                            SpawnWith(move |parent: &mut ChildSpawner| {
-                                for fps_setting in [
-                                    SetFps::Low,
-                                    SetFps::Medium,
-                                    SetFps::High,
-                                    SetFps::Uncapped,
-                                ] {
-                                    let mut entity = parent.spawn((
-                                        Button,
-                                        Node {
-                                            width: px(150),
-                                            height: px(65),
-                                            ..button_node()
-                                        },
-                                        BackgroundColor(NORMAL_BUTTON),
-                                        fps_setting,
-                                        children![(
-                                            Text::new(format!("{fps_setting:?}")),
-                                            button_text_style(),
-                                        )],
-                                    ));
-                                    if fps_limit == fps_setting {
-                                        entity.insert(SelectedOption);
-                                    }
-                                }
-                            })
-                        ))
-                    ),
-                    (
-                        Button,
-                        button_node(),
-                        BackgroundColor(NORMAL_BUTTON),
-                        InGameMenuButtonAction::BackToInGameMenu,
-                        children![(Text::new("Back"), button_text_style())]
-                    )
-                ]
-            )]
-        ));
-    }
+        // Up/Down
+        if keyboard_input.pressed(KeyCode::Space) {
+            direction += Vec3::Y;
+        }
+        if keyboard_input.pressed(KeyCode::ShiftLeft) {
+            direction -= Vec3::Y;
+        }
 
-    fn menu_action(
-        interaction_query: Query<
-            (&Interaction, &InGameMenuButtonAction),
-            (Changed<Interaction>, With<Button>),
-        >,
-        mut app_exit_writer: MessageWriter<AppExit>,
-        mut paused_menu_state: ResMut<NextState<InGameMenuState>>,
-        mut game_state: ResMut<NextState<GameState>>,
-        mut menu_state: ResMut<NextState<MenuState>>,
-    ) {
-        for (interaction, in_game_menu_button_action) in &interaction_query {
-            if *interaction == Interaction::Pressed {
-                match in_game_menu_button_action {
-                    InGameMenuButtonAction::Quit => {
-                        app_exit_writer.write(AppExit::Success);
-                    }
-                    InGameMenuButtonAction::Resume => {
-                        game_state.set(GameState::Game);
-                        paused_menu_state.set(InGameMenuState::Disabled);
-                    }
-                    InGameMenuButtonAction::Settings => paused_menu_state.set(InGameMenuState::Settings),
-                    InGameMenuButtonAction::BackToInGameMenu => paused_menu_state.set(InGameMenuState::Base),
-                    InGameMenuButtonAction::BackToMainMenu => {
-                        game_state.set(GameState::Menu);
-                        menu_state.set(MenuState::Main);
-                        paused_menu_state.set(InGameMenuState::Disabled);
-                    }
-                }
-            }
+        if direction.length_squared() > 0.0 {
+            direction = direction.normalize();
+            transform.translation += direction * settings.speed * time.delta_secs();
         }
     }
 }
+
+/// Handles mouse movement for looking around
+pub fn mouse_look(
+    mut mouse_events: MessageReader<MouseMotion>,
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    settings: Res<CameraSettings>,
+    mut orientation: ResMut<CameraOrientation>,
+    mut query: Query<&mut Transform, With<FlyCamera>>,
+) {
+    let mut delta = Vec2::ZERO;
+    if mouse_input.pressed(MouseButton::Middle) {
+        for event in mouse_events.read() {
+            delta += event.delta;
+        }
+    }
+
+    if delta.length_squared() == 0.0 {
+        return;
+    }
+
+    // update yaw and pitch
+    orientation.yaw -= delta.x * settings.sensitivity;
+    orientation.pitch -= delta.y * settings.sensitivity;
+    orientation.pitch = orientation.pitch.clamp(-1.54, 1.54); // prevent flipping
+
+    // apply rotation to camera transformation
+    for mut transform in &mut query {
+        transform.rotation = Quat::from_axis_angle(Vec3::Y, orientation.yaw) * Quat::from_axis_angle(Vec3::X, orientation.pitch);
+    }
+}
+
+/// Handles mouse scroll wheel for zooming in/out of camera
+pub fn mouse_scroll(
+    mut scroll_events: MessageReader<MouseWheel>,
+    time: Res<Time>,
+    settings: Res<CameraSettings>,
+    mut query: Query<&mut Transform, With<FlyCamera>>,
+) {
+    let mut scroll_delta = 0.0;
+    for event in scroll_events.read() {
+        // scroll up = zoom in
+        scroll_delta += event.y
+    }
+
+    if scroll_delta.abs() < f32::EPSILON {
+        return;
+    }
+
+    for mut transform in &mut query {
+        let forward = transform.forward();
+        transform.translation += forward * scroll_delta * settings.zoom_speed * time.delta_secs();
+    }
+}
+
+pub fn scroll_control(
+    mut scroll_events: MessageReader<MouseWheel>,
+    mut distance: ResMut<CursorDistance>,
+) {
+    let mut scroll_delta = 0.0;
+    for event in scroll_events.read() {
+        scroll_delta += event.y;
+    }
+
+    if scroll_delta.abs() > f32::EPSILON {
+        distance.0 -= scroll_delta * 0.5;
+        distance.0 = distance.0.clamp(1.0, 50.0);
+    }
+}
+
