@@ -63,7 +63,8 @@ pub mod main_menu {
     /// All actions that can be triggered from a button click
     #[derive(Component)]
     enum MenuButtonAction {
-        Play,
+        Levels,
+        Playground,
         Settings,
         BackToMainMenu,
         Quit,
@@ -136,6 +137,7 @@ pub mod main_menu {
         };
 
         let right_icon = asset_server.load(r"icons\chevron_right_icon.png");
+        let rocket_launch_icon = asset_server.load(r"icons\rocket_launch_icon.png");
         let settings_icon = asset_server.load(r"icons\settings_icon.png");
         let exit_icon = asset_server.load(r"icons\logout_icon.png");
 
@@ -175,11 +177,25 @@ pub mod main_menu {
                         Button,
                         button_node.clone(),
                         BackgroundColor(NORMAL_BUTTON),
-                        MenuButtonAction::Play,
+                        MenuButtonAction::Levels,
                         children![
                             (ImageNode::new(right_icon), button_icon_node.clone()),
                             (
-                                Text::new("New Game"),
+                                Text::new("Levels"),
+                                button_text_font.clone(),
+                                TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                            ),
+                        ]
+                    ),
+                    (
+                        Button,
+                        button_node.clone(),
+                        BackgroundColor(NORMAL_BUTTON),
+                        MenuButtonAction::Playground,
+                        children![
+                            (ImageNode::new(rocket_launch_icon), button_icon_node.clone()),
+                            (
+                                Text::new("Playground"),
                                 button_text_font.clone(),
                                 TextColor(Color::srgb(0.9, 0.9, 0.9)),
                             ),
@@ -323,8 +339,12 @@ pub mod main_menu {
                     MenuButtonAction::Quit => {
                         app_exit_writer.write(AppExit::Success);
                     }
-                    MenuButtonAction::Play => {
+                    MenuButtonAction::Playground => {
                         game_state.set(GameState::Game);
+                        menu_state.set(MenuState::Disabled);
+                    }
+                    MenuButtonAction::Levels => {
+                        game_state.set(GameState::Levels);
                         menu_state.set(MenuState::Disabled);
                     }
                     MenuButtonAction::Settings => menu_state.set(MenuState::Settings),

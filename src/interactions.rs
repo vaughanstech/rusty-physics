@@ -215,6 +215,8 @@ pub mod interactive_menu {
     #[derive(Component)]
     pub struct Ground;
 
+    #[derive(Component)]
+    pub struct EntityTag;
 
     #[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
     pub enum MapTag {
@@ -236,6 +238,19 @@ pub mod interactive_menu {
     #[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug)]
     pub enum StructureTag {
         CubeTower
+    }
+
+    /// Cleans up all entities that are spawned from the interactive menu
+    /// - This runs when the user goes back to the main menu
+    /// - All entities tagged with the **EntityTag** component will be despawned
+    /// - **Future implementation**: Add a saving feature so that the playground is saved when the user exits the application/goes to main menu
+    pub fn cleanup_entities(
+        mut commands: Commands,
+        entities: Query<Entity, With<EntityTag>>,
+    ) {
+        for entity in &entities {
+            commands.entity(entity).despawn();
+        }
     }
 
     pub fn interactive_menu(
@@ -328,8 +343,9 @@ pub mod interactive_menu {
                             }
 
                             match tag {
-                                MapTag::Flat => commands.spawn(
-                                    (SceneRoot(
+                                MapTag::Flat => commands.spawn((
+                                    EntityTag,
+                                    SceneRoot(
                                     asset_server.load(
                                         GltfAssetLabel::Scene(0)
                                             .from_asset("maps.glb"),
@@ -338,8 +354,9 @@ pub mod interactive_menu {
                                     Ground,
                                 ))
                                 .observe(on_level_scene_spawn),
-                                MapTag::Ramp => commands.spawn(
-                                    (SceneRoot(
+                                MapTag::Ramp => commands.spawn((
+                                    EntityTag,
+                                    SceneRoot(
                                     asset_server.load(
                                         GltfAssetLabel::Scene(1)
                                             .from_asset("maps.glb"),
@@ -356,6 +373,7 @@ pub mod interactive_menu {
                                     )),
                                     MapTag::Ramp,
                                     Ground,
+                                    EntityTag,
                                 ))
                                 .observe(on_level_scene_spawn),
                             };
@@ -379,6 +397,7 @@ pub mod interactive_menu {
                                     )),
                                     Transform::from_xyz(0.0, 10.0, 0.0),
                                     ShapeTag::Cube,
+                                    EntityTag
                                 ))
                                 .observe(on_shape_scene_spawn),
                                 ShapeTag::Sphere => commands.spawn((
@@ -389,6 +408,7 @@ pub mod interactive_menu {
                                     )),
                                     Transform::from_xyz(0.0, 10.0, 0.0),
                                     ShapeTag::Sphere,
+                                    EntityTag,
                                 ))
                                 .observe(on_shape_scene_spawn),
                                 ShapeTag::Cone => commands.spawn((
@@ -399,6 +419,7 @@ pub mod interactive_menu {
                                     )),
                                     Transform::from_xyz(0.0, 10.0, 0.0),
                                     ShapeTag::Cone,
+                                    EntityTag,
                                 ))
                                 .observe(on_shape_scene_spawn),
                                 ShapeTag::Torus => commands.spawn((
@@ -419,6 +440,7 @@ pub mod interactive_menu {
                                     )),
                                     Transform::from_xyz(0.0, 10.0, 0.0),
                                     ShapeTag::Cylinder,
+                                    EntityTag,
                                 ))
                                 .observe(on_shape_scene_spawn),
                                 ShapeTag::SMCUBE => commands.spawn((
@@ -429,6 +451,7 @@ pub mod interactive_menu {
                                     )),
                                     Transform::from_xyz(0.0, 10.0, 0.0),
                                     ShapeTag::SMCUBE,
+                                    EntityTag,
                                 ))
                                 .observe(on_shape_scene_spawn)
                             };
@@ -461,6 +484,7 @@ pub mod interactive_menu {
                                     )),
                                     Transform::from_xyz(0.0, 0.1, 0.0),
                                     StructureTag::CubeTower,
+                                    EntityTag,
                                 ))
                                 .observe(on_structure_scene_spawn),
                             };

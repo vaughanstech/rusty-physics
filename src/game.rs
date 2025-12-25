@@ -16,13 +16,15 @@ pub fn game_plugin(
     app: &mut App,
 ) {
     app
-        .add_systems(Startup, game_setup)
+        .add_systems(OnEnter(GameState::Game), game_setup)
         .insert_resource(CameraSettings {
             speed: 8.0,
             sensitivity: 0.002,
             zoom_speed: 30.0,
         })
-        .add_plugins(EguiPlugin::default())
+        .add_plugins((
+            EguiPlugin::default(),
+        ))
         .insert_resource(ImpulseSettings::default())
         .insert_resource(CameraOrientation::default())
         .insert_resource(CursorDistance(10.0)) // set cursor distance on spawn
@@ -54,8 +56,12 @@ pub fn game_plugin(
             ).run_if(resource_equals(InteractionMode(InteractionModeType::Wrecker))),
             toggle_debug_render_state,
             game_action,
-        ).run_if(in_state(GameState::Game)));
+        ).run_if(in_state(GameState::Game)))
+        .add_systems(OnExit(GameState::Game), cleanup_game);
 }
+
+#[derive(Component)]
+struct OnGameScreen;
 
 fn game_setup(
     mut commands: Commands,
@@ -71,6 +77,7 @@ fn game_setup(
             ..default()
         },
         Transform::from_xyz(4.0, 8.0, 4.0),
+        OnGameScreen,
     ));
 
     commands.spawn((
@@ -96,6 +103,7 @@ fn game_setup(
         ),
         Transform::from_xyz(0.0, 0.0, 0.0),
         Visibility::Hidden,
+        OnGameScreen,
     ))
     .insert(ImpulseCursor).id();
 
@@ -108,6 +116,7 @@ fn game_setup(
         Collider::sphere(0.5),
         RigidBody::Kinematic,
         Visibility::Hidden,
+        OnGameScreen,
     ))
     .insert(WreckerCursor).id();
 
@@ -138,6 +147,7 @@ fn game_setup(
                 ImpulseCoords,
             )],
             Visibility::Hidden,
+            OnGameScreen,
         )).insert(ImpulseCursor);
     };
     impulse_label(impulse_ball, "┌─ Impulse: (0.00, 0.00, 0.00)");
@@ -161,9 +171,19 @@ fn game_setup(
                 WreckerCoords,
             )],
             Visibility::Hidden,
+            OnGameScreen,
         )).insert(WreckerCursor);
     };
     wrecker_label(wrecker_ball, "┌─ Wrecker: (0.00, 0.00, 0.00)");
+}
+
+
+/// Cleans up all objects/entities that are created in the game_setup() function
+/// - This runs when the user leaves the GameState::Game state
+fn cleanup_game(mut commands: Commands, query: Query<Entity, With<OnGameScreen>>) {
+    for entity in &query {
+        commands.entity(entity).despawn();
+    }
 }
 
 /// Set the max framerate limit
@@ -431,4 +451,3 @@ pub fn scroll_control(
         distance.0 = distance.0.clamp(1.0, 50.0);
     }
 }
-
