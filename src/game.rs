@@ -4,7 +4,7 @@ use bevy_asset::{AssetServer};
 use bevy_egui::{EguiPrimaryContextPass, EguiPlugin};
 use bevy_framepace::*;
 
-use crate::{menus::pause_menu::InGameMenuState, interactions::*, interactions::interactive_menu::*};
+use crate::{interactions::{interactive_menu::*, *}, menus::pause_menu::{InGameMenuState, PauseFromState}};
 use super::SetFps;
 
 use super::GameState;
@@ -228,20 +228,27 @@ pub fn fps_counter(
 pub fn game_action(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     state: Res<State<GameState>>,
+    pause_state: Res<State<PauseFromState>>,
     mut game_state: ResMut<NextState<GameState>>,
     mut menu_state: ResMut<NextState<InGameMenuState>>,
+    mut pause_from_state: ResMut<NextState<PauseFromState>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Escape) {
         match state.get() {
             GameState::Game => {
                 game_state.set(GameState::Paused);
+                pause_from_state.set(PauseFromState::Game);
                 
                 info!("Pausing Game");
             }
             GameState::Paused => {
-                game_state.set(GameState::Game);
-                menu_state.set(InGameMenuState::Disabled);
-                info!("Resuming Game");
+                if *pause_state.get() == PauseFromState::Game {
+                    game_state.set(GameState::Game);
+                    menu_state.set(InGameMenuState::Disabled);
+                    pause_from_state.set(PauseFromState::Disabled);
+                    info!("Resuming Game");
+                    return;
+                }
             }
             _ => {}
         }
@@ -337,6 +344,9 @@ pub fn setup_camera(
         ExampleViewports::_PerspectiveMain,
         transform,
         FlyCamera,
+        // OnGameScreen,
+        // OnInGameMenuScreen,
+        // crate::levels::OnLevelScreen,
         // DebugRender::default().with_collider_color(Color::srgb(1.0, 0.0, 0.0)),
     ));
 }

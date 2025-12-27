@@ -1,6 +1,7 @@
 mod entity_pipeline;
 mod game;
 mod interactions;
+mod levels;
 mod menus;
 
 use avian3d::{PhysicsPlugins, prelude::*};
@@ -27,7 +28,6 @@ enum SetFps {
     Uncapped,
 }
 
-
 fn main() {
     App::new()
         .add_plugins((
@@ -40,7 +40,7 @@ fn main() {
         .init_state::<GameState>()
         .insert_resource(SetFps::Medium)
         .add_systems(Startup, setup_camera)
-        .add_plugins((menus::main_menu::menu_plugin, game::game_plugin, menus::pause_menu::pause_menu_plugin))
+        .add_plugins((menus::main_menu::menu_plugin, game::game_plugin, menus::pause_menu::pause_menu_plugin, levels::levels_plugin))
         .add_systems(Update, (game::set_max_fps, game::fps_counter))
         .add_systems(OnEnter(GameState::Menu), cleanup_entities)
         .run();

@@ -359,6 +359,7 @@ pub mod pause_menu {
     use bevy::{color, prelude::*};
     use crate::GameState;
 
+    use crate::levels::{LevelState, level_action};
     use crate::{SetFps, game::game_action, menus::main_menu::MenuState};
 
     /// This plugin manages the in-game Pause menu
@@ -367,11 +368,13 @@ pub mod pause_menu {
     ) {
         app
             .init_state::<InGameMenuState>()
+            .init_state::<PauseFromState>()
             .add_systems(OnEnter(GameState::Paused), menu_setup)
             .add_systems(OnEnter(InGameMenuState::Base), in_game_menu_setup)
-            .add_systems(Update, (menu_action, button_system, game_action).run_if(in_state(GameState::Paused)))
+            .add_systems(Update, (in_levels_menu_action, button_system, game_action, level_action).run_if(in_state(GameState::Paused)))
             .add_systems(OnEnter(InGameMenuState::Settings), in_game_settings_menu_setup)
-            .add_systems(Update, setting_button::<SetFps>.run_if(in_state(InGameMenuState::Settings)));
+            .add_systems(Update, setting_button::<SetFps>.run_if(in_state(InGameMenuState::Settings)))
+            .add_systems(OnExit(GameState::Paused), cleanup_in_game_menu);
     }
 
     /// State used for the current pause menu screen
@@ -383,9 +386,18 @@ pub mod pause_menu {
         Disabled,
     }
 
+    /// State used to keep track of when the pause menu was triggered to ensure proper state transition
+    #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+    pub enum PauseFromState {
+        Game,
+        Levels,
+        #[default]
+        Disabled,
+    }
+
     /// Tag component used to tag entities added on the in-game menu screen
     #[derive(Component)]
-    struct OnInGameMenuScreen;
+    pub struct OnInGameMenuScreen;
 
     /// Tag component used to tag entities added on the in-game settings menu screen
     #[derive(Component)]
@@ -672,14 +684,27 @@ pub mod pause_menu {
         ));
     }
 
-    fn menu_action(
+    // Removes pause menu elements from the screen upon exiting Paused GameState
+    fn cleanup_in_game_menu(
+        mut commands: Commands,
+        query: Query<Entity, With<OnInGameMenuScreen>>,
+    ) {
+        for entity in &query {
+            commands.entity(entity).despawn();
+        }
+    }
+
+    /// System used to switch game states based on interaction with the pause menu
+    fn in_levels_menu_action(
         interaction_query: Query<
             (&Interaction, &InGameMenuButtonAction),
             (Changed<Interaction>, With<Button>),
         >,
         mut app_exit_writer: MessageWriter<AppExit>,
+        state: Res<State<PauseFromState>>,
         mut paused_menu_state: ResMut<NextState<InGameMenuState>>,
         mut game_state: ResMut<NextState<GameState>>,
+        mut level_state: ResMut<NextState<LevelState>>,
         mut menu_state: ResMut<NextState<MenuState>>,
     ) {
         for (interaction, in_game_menu_button_action) in &interaction_query {
@@ -689,14 +714,26 @@ pub mod pause_menu {
                         app_exit_writer.write(AppExit::Success);
                     }
                     InGameMenuButtonAction::Resume => {
-                        game_state.set(GameState::Game);
+                        if *state.get() == PauseFromState::Game {
+                            game_state.set(GameState::Game);
+                            paused_menu_state.set(InGameMenuState::Disabled);
+                            return;
+                        }
+                        game_state.set(GameState::Levels);
                         paused_menu_state.set(InGameMenuState::Disabled);
                     }
                     InGameMenuButtonAction::Settings => paused_menu_state.set(InGameMenuState::Settings),
                     InGameMenuButtonAction::BackToInGameMenu => paused_menu_state.set(InGameMenuState::Base),
                     InGameMenuButtonAction::BackToMainMenu => {
+                        if *state.get() == PauseFromState::Game {
+                            game_state.set(GameState::Menu);
+                            menu_state.set(MenuState::Main);
+                            paused_menu_state.set(InGameMenuState::Disabled);
+                            return;
+                        }
                         game_state.set(GameState::Menu);
                         menu_state.set(MenuState::Main);
+                        level_state.set(LevelState::Disabled);
                         paused_menu_state.set(InGameMenuState::Disabled);
                     }
                 }

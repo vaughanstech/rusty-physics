@@ -268,7 +268,7 @@ pub mod interactive_menu {
         egui::Window::new("Rusty Physics Interactive Menu")
             .resizable(true)
             .vscroll(true)
-            .default_open(false)
+            .default_open(true)
             .show(contexts.ctx_mut()?, |ui| {
                 ui.label("Keybinds:");
                 ui.label("Toggle Debug Renders: Q");
@@ -430,6 +430,7 @@ pub mod interactive_menu {
                                         )),
                                     Transform::from_xyz(0.0, 10.0, 0.0),
                                     ShapeTag::Torus,
+                                    EntityTag,
                                 ))
                                 .observe(on_shape_scene_spawn),
                                 ShapeTag::Cylinder => commands.spawn((
