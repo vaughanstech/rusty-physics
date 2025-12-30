@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use avian3d::prelude::*;
 use bevy::{ color, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, prelude::* };
 use bevy_asset::{AssetServer};
-use bevy_egui::{EguiPrimaryContextPass, EguiPlugin};
+use bevy_egui::{EguiPlugin, EguiPrimaryContextPass, PrimaryEguiContext};
 use bevy_framepace::*;
 
 use crate::{interactions::{interactive_menu::*, *}, menus::pause_menu::{InGameMenuState, PauseFromState}};
@@ -16,7 +18,8 @@ pub fn game_plugin(
     app: &mut App,
 ) {
     app
-        .add_systems(OnEnter(GameState::Game), game_setup)
+        .add_systems(OnEnter(GameState::Game), setup_camera.run_if(run_once))
+        .add_systems(OnEnter(GameState::Game), (game_setup, persistent_camera.run_if(resource_exists::<SavedCameraTransforms>).run_if(has_camera_save)))
         .insert_resource(CameraSettings {
             speed: 8.0,
             sensitivity: 0.002,
@@ -25,6 +28,7 @@ pub fn game_plugin(
         .add_plugins((
             EguiPlugin::default(),
         ))
+        .init_resource::<SavedCameraTransforms>()
         .insert_resource(ImpulseSettings::default())
         .insert_resource(CameraOrientation::default())
         .insert_resource(CursorDistance(10.0)) // set cursor distance on spawn
@@ -177,10 +181,25 @@ fn game_setup(
     wrecker_label(wrecker_ball, "┌─ Wrecker: (0.00, 0.00, 0.00)");
 }
 
+/// Hashmap used to store the Game camera's last position
+#[derive(Resource, Default)]
+pub struct SavedCameraTransforms(pub(crate) HashMap<String, Transform>);
 
-/// Cleans up all objects/entities that are created in the game_setup() function
+/// Cleans up all objects/entities that are created in the `game_setup()` function
+/// and takes a snapshot of the Game camera's last position and stores it in the 
+/// `SavedCameraTransform` Resource Hashmap, this should be used by the Pause menu's
+/// Camera to keep the camera positioned in the same place
 /// - This runs when the user leaves the GameState::Game state
-fn cleanup_game(mut commands: Commands, query: Query<Entity, With<OnGameScreen>>) {
+fn cleanup_game(
+    mut commands: Commands,
+    query: Query<Entity, With<OnGameScreen>>,
+    cam_query: Query<&Transform, With<FlyCamera>>,
+    mut cam_transform: ResMut<SavedCameraTransforms>,
+) {
+    if let Ok(transform) = cam_query.single() {
+        cam_transform.0.insert("cam_last_pos".to_string(), *transform);
+    }
+
     for entity in &query {
         commands.entity(entity).despawn();
     }
@@ -285,7 +304,7 @@ fn toggle_debug_render_state(
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 
 #[derive(Component)]
-enum ExampleViewports {
+pub enum ExampleViewports {
     _PerspectiveMain,
     _PerspectiveStretched,
     _PerspectiveMoving,
@@ -344,11 +363,33 @@ pub fn setup_camera(
         ExampleViewports::_PerspectiveMain,
         transform,
         FlyCamera,
-        // OnGameScreen,
-        // OnInGameMenuScreen,
+        PrimaryEguiContext,
+        OnGameScreen,
         // crate::levels::OnLevelScreen,
         // DebugRender::default().with_collider_color(Color::srgb(1.0, 0.0, 0.0)),
     ));
+}
+
+fn has_camera_save(
+    save: Res<SavedCameraTransforms>,
+) -> bool {
+    save.0.contains_key("cam_last_pos")
+}
+
+fn persistent_camera(
+    mut commands: Commands,
+    saved_camera_transform: Res<SavedCameraTransforms>,
+) {
+    if let Some(transform) = saved_camera_transform.0.get("cam_last_pos") {
+        commands.spawn((
+            Camera3d::default(),
+            ExampleViewports::_PerspectiveMain,
+            *transform,
+            OnGameScreen,
+            FlyCamera,
+            PrimaryEguiContext,
+        ));
+    }
 }
 
 /// Handles keyboard input for movement

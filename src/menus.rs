@@ -359,6 +359,7 @@ pub mod pause_menu {
     use bevy::{color, prelude::*};
     use crate::GameState;
 
+    use crate::game::{ExampleViewports, SavedCameraTransforms};
     use crate::levels::{LevelState, level_action};
     use crate::{SetFps, game::game_action, menus::main_menu::MenuState};
 
@@ -369,7 +370,7 @@ pub mod pause_menu {
         app
             .init_state::<InGameMenuState>()
             .init_state::<PauseFromState>()
-            .add_systems(OnEnter(GameState::Paused), menu_setup)
+            .add_systems(OnEnter(GameState::Paused), (menu_setup, setup_pause_camera))
             .add_systems(OnEnter(InGameMenuState::Base), in_game_menu_setup)
             .add_systems(Update, (in_levels_menu_action, button_system, game_action, level_action).run_if(in_state(GameState::Paused)))
             .add_systems(OnEnter(InGameMenuState::Settings), in_game_settings_menu_setup)
@@ -422,6 +423,26 @@ pub mod pause_menu {
         Quit,
     }
 
+    /// Creates a Camera that positions itself in the last location of the Game camera
+    /// This is to still allow the user to see what's going on in the game while paused
+    fn setup_pause_camera(
+        mut commands: Commands,
+        saved_game_camera: Res<SavedCameraTransforms>
+    ) {
+        // Checks to see if the saved_game_camera contains the field 'cam_last_pos'
+        // if the field exists, then apply that transform to the pause camera
+        if let Some(transform) = saved_game_camera.0.get("cam_last_pos") {
+            commands.spawn((
+                Camera3d::default(),
+                ExampleViewports::_PerspectiveMain,
+                *transform,
+                OnInGameMenuScreen,
+            ));
+        }
+        
+        
+    }
+
     /// This system handles changing all buttons color based on mouse interaction
     fn button_system(
         mut interaction_query: Query<
@@ -459,12 +480,14 @@ pub mod pause_menu {
     }
 
 
+    /// On Menu initialization, the Menu state sets itself to default to the Base menu page
     fn menu_setup(
         mut menu_state: ResMut<NextState<InGameMenuState>>,
     ) {
         menu_state.set(InGameMenuState::Base);
     }
 
+    /// Sets up the in-game menu
     fn in_game_menu_setup(
         mut commands: Commands,
         asset_server: Res<AssetServer>,
@@ -590,6 +613,7 @@ pub mod pause_menu {
         ));
     }
 
+    /// Sets up the in-game settings menu
     fn in_game_settings_menu_setup(
         mut commands: Commands,
         fps_limit: Res<SetFps>,
@@ -684,7 +708,7 @@ pub mod pause_menu {
         ));
     }
 
-    // Removes pause menu elements from the screen upon exiting Paused GameState
+    /// Removes pause menu elements from the screen upon exiting Paused GameState
     fn cleanup_in_game_menu(
         mut commands: Commands,
         query: Query<Entity, With<OnInGameMenuScreen>>,
