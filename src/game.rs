@@ -1,18 +1,13 @@
 use std::collections::HashMap;
 
 use avian3d::prelude::*;
-use bevy::{ color, diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin}, prelude::* };
+use bevy::{ color, prelude::* };
 use bevy_asset::{AssetServer};
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass, PrimaryEguiContext};
-use bevy_framepace::*;
 
 use crate::{SimulationState, interactions::{interactive_menu::*, *}};
-use super::SetFps;
 
 use super::GameState;
-
-#[derive(Component)]
-pub struct FpsText;
 
 pub fn game_plugin(
     app: &mut App,
@@ -82,23 +77,6 @@ fn game_setup(
         },
         Transform::from_xyz(4.0, 8.0, 4.0),
         OnGameScreen,
-    ));
-
-    commands.spawn((
-        Text::new("FPS: "),
-        TextFont {
-            font_size: 42.0,
-            ..default()
-        },
-    ))
-    .with_child((
-        TextSpan::default(),
-        TextFont {
-            font_size: 33.0,
-            ..Default::default()
-        },
-        TextColor(Color::srgb(0.0, 1.0, 0.0)),
-        FpsText,
     ));
 
     let impulse_ball = commands.spawn((
@@ -202,44 +180,6 @@ fn cleanup_game(
 
     for entity in &query {
         commands.entity(entity).despawn();
-    }
-}
-
-/// Set the max framerate limit
-pub fn set_max_fps(
-    mut commands: Commands,
-    mut settings: ResMut<FramepaceSettings>,
-    fps_limit: Res<SetFps>,
-) {
-    let fps = match *fps_limit {
-        SetFps::Low => 30.0,
-        SetFps::Medium => 60.0,
-        SetFps::High => 120.0,
-        SetFps::Uncapped => 0.0,
-    };
-    
-    // Actually setting global max fps
-    if *fps_limit == SetFps::Uncapped {
-        settings.limiter = Limiter::Off;
-    } else {
-        // Setting the Physics time equal to the max framerate
-        commands.insert_resource(Time::<Fixed>::from_hz(fps));
-        settings.limiter = Limiter::from_framerate(fps);
-    }
-}
-
-/// Tracks frames per second
-pub fn fps_counter(
-    diagnostics: Res<DiagnosticsStore>,
-    mut query: Query<&mut TextSpan, With<FpsText>>,
-) {
-    for mut span in &mut query {
-        if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS)
-            && let Some(value) = fps.smoothed() 
-        {
-            // update the value of the second section
-            **span = format!("{value:.2}");
-        }
     }
 }
 
