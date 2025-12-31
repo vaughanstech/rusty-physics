@@ -357,9 +357,8 @@ pub mod main_menu {
 
 pub mod pause_menu {
     use bevy::{color, prelude::*};
-    use crate::GameState;
-
-    use crate::game::{ExampleViewports, SavedCameraTransforms};
+    
+    use crate::{GameState, SimulationState};
     use crate::levels::{LevelState, level_action};
     use crate::{SetFps, game::game_action, menus::main_menu::MenuState};
 
@@ -369,13 +368,12 @@ pub mod pause_menu {
     ) {
         app
             .init_state::<InGameMenuState>()
-            .init_state::<PauseFromState>()
-            .add_systems(OnEnter(GameState::Paused), (menu_setup, setup_pause_camera))
+            .init_state::<SimulationState>()
+            .add_systems(OnEnter(SimulationState::Paused), menu_setup)
             .add_systems(OnEnter(InGameMenuState::Base), in_game_menu_setup)
-            .add_systems(Update, (in_levels_menu_action, button_system, game_action, level_action).run_if(in_state(GameState::Paused)))
+            .add_systems(Update, (in_levels_menu_action, button_system, game_action, level_action).run_if(in_state(SimulationState::Paused)))
             .add_systems(OnEnter(InGameMenuState::Settings), in_game_settings_menu_setup)
-            .add_systems(Update, setting_button::<SetFps>.run_if(in_state(InGameMenuState::Settings)))
-            .add_systems(OnExit(GameState::Paused), cleanup_in_game_menu);
+            .add_systems(Update, setting_button::<SetFps>.run_if(in_state(InGameMenuState::Settings)));
     }
 
     /// State used for the current pause menu screen
@@ -383,15 +381,6 @@ pub mod pause_menu {
     pub enum InGameMenuState {
         Base,
         Settings,
-        #[default]
-        Disabled,
-    }
-
-    /// State used to keep track of when the pause menu was triggered to ensure proper state transition
-    #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
-    pub enum PauseFromState {
-        Game,
-        Levels,
         #[default]
         Disabled,
     }
@@ -421,26 +410,6 @@ pub mod pause_menu {
         BackToInGameMenu,
         BackToMainMenu,
         Quit,
-    }
-
-    /// Creates a Camera that positions itself in the last location of the Game camera
-    /// This is to still allow the user to see what's going on in the game while paused
-    fn setup_pause_camera(
-        mut commands: Commands,
-        saved_game_camera: Res<SavedCameraTransforms>
-    ) {
-        // Checks to see if the saved_game_camera contains the field 'cam_last_pos'
-        // if the field exists, then apply that transform to the pause camera
-        if let Some(transform) = saved_game_camera.0.get("cam_last_pos") {
-            commands.spawn((
-                Camera3d::default(),
-                ExampleViewports::_PerspectiveMain,
-                *transform,
-                OnInGameMenuScreen,
-            ));
-        }
-        
-        
     }
 
     /// This system handles changing all buttons color based on mouse interaction
@@ -709,14 +678,14 @@ pub mod pause_menu {
     }
 
     /// Removes pause menu elements from the screen upon exiting Paused GameState
-    fn cleanup_in_game_menu(
-        mut commands: Commands,
-        query: Query<Entity, With<OnInGameMenuScreen>>,
-    ) {
-        for entity in &query {
-            commands.entity(entity).despawn();
-        }
-    }
+    // fn cleanup_in_game_menu(
+    //     mut commands: Commands,
+    //     query: Query<Entity, With<OnInGameMenuScreen>>,
+    // ) {
+    //     for entity in &query {
+    //         commands.entity(entity).despawn();
+    //     }
+    // }
 
     /// System used to switch game states based on interaction with the pause menu
     fn in_levels_menu_action(
@@ -725,7 +694,8 @@ pub mod pause_menu {
             (Changed<Interaction>, With<Button>),
         >,
         mut app_exit_writer: MessageWriter<AppExit>,
-        state: Res<State<PauseFromState>>,
+        curr_game_state: Res<State<GameState>>,
+        mut next_state: ResMut<NextState<SimulationState>>,
         mut paused_menu_state: ResMut<NextState<InGameMenuState>>,
         mut game_state: ResMut<NextState<GameState>>,
         mut level_state: ResMut<NextState<LevelState>>,
@@ -738,27 +708,20 @@ pub mod pause_menu {
                         app_exit_writer.write(AppExit::Success);
                     }
                     InGameMenuButtonAction::Resume => {
-                        if *state.get() == PauseFromState::Game {
-                            game_state.set(GameState::Game);
-                            paused_menu_state.set(InGameMenuState::Disabled);
-                            return;
-                        }
-                        game_state.set(GameState::Levels);
+                        next_state.set(SimulationState::Running);
                         paused_menu_state.set(InGameMenuState::Disabled);
                     }
                     InGameMenuButtonAction::Settings => paused_menu_state.set(InGameMenuState::Settings),
                     InGameMenuButtonAction::BackToInGameMenu => paused_menu_state.set(InGameMenuState::Base),
                     InGameMenuButtonAction::BackToMainMenu => {
-                        if *state.get() == PauseFromState::Game {
-                            game_state.set(GameState::Menu);
-                            menu_state.set(MenuState::Main);
-                            paused_menu_state.set(InGameMenuState::Disabled);
-                            return;
-                        }
                         game_state.set(GameState::Menu);
                         menu_state.set(MenuState::Main);
-                        level_state.set(LevelState::Disabled);
+                        next_state.set(SimulationState::Running);
                         paused_menu_state.set(InGameMenuState::Disabled);
+
+                        if *curr_game_state.get() == GameState::Levels {
+                            level_state.set(LevelState::Disabled);
+                        }
                     }
                 }
             }

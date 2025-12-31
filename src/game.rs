@@ -6,7 +6,7 @@ use bevy_asset::{AssetServer};
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass, PrimaryEguiContext};
 use bevy_framepace::*;
 
-use crate::{interactions::{interactive_menu::*, *}, menus::pause_menu::{InGameMenuState, PauseFromState}};
+use crate::{SimulationState, interactions::{interactive_menu::*, *}};
 use super::SetFps;
 
 use super::GameState;
@@ -18,8 +18,7 @@ pub fn game_plugin(
     app: &mut App,
 ) {
     app
-        .add_systems(OnEnter(GameState::Game), setup_camera.run_if(run_once))
-        .add_systems(OnEnter(GameState::Game), (game_setup, persistent_camera.run_if(resource_exists::<SavedCameraTransforms>).run_if(has_camera_save)))
+        .add_systems(OnEnter(GameState::Game), (game_setup, setup_camera))
         .insert_resource(CameraSettings {
             speed: 8.0,
             sensitivity: 0.002,
@@ -64,6 +63,7 @@ pub fn game_plugin(
         .add_systems(OnExit(GameState::Game), cleanup_game);
 }
 
+/// Tag used on all entities located in the `GameState::Game`
 #[derive(Component)]
 struct OnGameScreen;
 
@@ -246,30 +246,21 @@ pub fn fps_counter(
 /// Cross-system function used to toggle between the Game state and the Pause state
 pub fn game_action(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    state: Res<State<GameState>>,
-    pause_state: Res<State<PauseFromState>>,
-    mut game_state: ResMut<NextState<GameState>>,
-    mut menu_state: ResMut<NextState<InGameMenuState>>,
-    mut pause_from_state: ResMut<NextState<PauseFromState>>,
+    state: Res<State<SimulationState>>,
+    mut next_state: ResMut<NextState<SimulationState>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Escape) {
         match state.get() {
-            GameState::Game => {
-                game_state.set(GameState::Paused);
-                pause_from_state.set(PauseFromState::Game);
+            SimulationState::Running => {
+                next_state.set(SimulationState::Paused);
                 
                 info!("Pausing Game");
             }
-            GameState::Paused => {
-                if *pause_state.get() == PauseFromState::Game {
-                    game_state.set(GameState::Game);
-                    menu_state.set(InGameMenuState::Disabled);
-                    pause_from_state.set(PauseFromState::Disabled);
-                    info!("Resuming Game");
-                    return;
-                }
+            SimulationState::Paused => {
+                next_state.set(SimulationState::Running);
+
+                info!("Resuming Game");
             }
-            _ => {}
         }
         // for mut menu_toggle in menu_toggle_query.iter_mut() {
         //     *menu_toggle = match *menu_toggle {
@@ -368,28 +359,6 @@ pub fn setup_camera(
         // crate::levels::OnLevelScreen,
         // DebugRender::default().with_collider_color(Color::srgb(1.0, 0.0, 0.0)),
     ));
-}
-
-fn has_camera_save(
-    save: Res<SavedCameraTransforms>,
-) -> bool {
-    save.0.contains_key("cam_last_pos")
-}
-
-fn persistent_camera(
-    mut commands: Commands,
-    saved_camera_transform: Res<SavedCameraTransforms>,
-) {
-    if let Some(transform) = saved_camera_transform.0.get("cam_last_pos") {
-        commands.spawn((
-            Camera3d::default(),
-            ExampleViewports::_PerspectiveMain,
-            *transform,
-            OnGameScreen,
-            FlyCamera,
-            PrimaryEguiContext,
-        ));
-    }
 }
 
 /// Handles keyboard input for movement

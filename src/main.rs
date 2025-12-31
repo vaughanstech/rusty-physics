@@ -17,7 +17,6 @@ enum GameState {
     Menu,
     Game,
     Levels,
-    Paused,
 }
 
 #[derive(Resource, Debug, Component, PartialEq, Eq, Clone, Copy)]
@@ -26,6 +25,13 @@ enum SetFps {
     Medium,
     High,
     Uncapped,
+}
+
+#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+pub enum SimulationState {
+    #[default]
+    Running,
+    Paused,
 }
 
 #[derive(Component)]
@@ -41,6 +47,7 @@ fn main() {
             PhysicsDebugPlugin::default(),
         ))
         .init_state::<GameState>()
+        .init_state::<SimulationState>()
         .insert_resource(SetFps::High)
         .add_systems(OnEnter(GameState::Menu), setup)
         .add_plugins((menus::main_menu::menu_plugin, game::game_plugin, menus::pause_menu::pause_menu_plugin, levels::levels_plugin))
