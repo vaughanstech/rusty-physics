@@ -54,28 +54,42 @@ mod level_one {
         app: &mut App,
     ) {
         app
+        .insert_resource(EntityCount::default())
             .add_systems(OnEnter(LevelState::ONE), (level_one_setup, initialize_cam))
             .add_systems(Update, (
-                spawn_cubes.run_if(on_timer(Duration::from_secs(1))),
+                spawn_cubes.run_if(on_timer(Duration::from_secs_f32(0.5))),
                 rotate_level_one_cam,
             ).run_if(in_state(LevelState::ONE)))
             // .add_systems(OnExit(GameState::Levels), level_one_camera_cleanup)
             .add_systems(OnExit(LevelState::ONE), level_one_cleanup);
     }
 
+    /// Tag used to keep track of all entities in the Level One scene
     #[derive(Component)]
     pub struct OnLevelOneScreen;
 
+    /// Tag used specifically for the Level One camera
     #[derive(Component)]
     struct LevelOneCamera;
 
+    /// Tag used specifically for text that updates the amount of entities spawned
+    #[derive(Component)]
+    struct EntitySpawnedText;
+
+    #[derive(Resource, Debug)]
+    struct EntityCount {
+        count: i32,
+    }
+    impl Default for EntityCount {
+        fn default() -> Self {
+            Self { count: 0 }
+        }
+    }
+
+    /// Creates the LevelOne Camera on Setup
     fn initialize_cam(
         mut commands: Commands,
     ) {
-        // let transform = saved_cam.0.get("lvl_one_cam_last_pos")
-        // .cloned()
-        // .unwrap_or(Transform::from_xyz(0.0, 10.0, 40.0).with_rotation(Quat::from_euler(EulerRot::ZYX, 0.0, time.elapsed_secs() * PI / 5.0, -FRAC_PI_4)).looking_at(Vec3::ZERO, Vec3::Y));
-
         commands.spawn((
             Camera3d::default(),
             ExampleViewports::_PerspectiveMain,
@@ -85,6 +99,7 @@ mod level_one {
         ));
     }
 
+    /// Continuously rotates the Camera around the origin
     fn rotate_level_one_cam(
         time: Res<Time>,
         mut query: Query<&mut Transform, With<LevelOneCamera>>,
@@ -109,10 +124,20 @@ mod level_one {
         }
     }
 
+    /// Additional configurations to be made upon entering Level One
     fn level_one_setup(
         mut commands: Commands,
         asset_server: Res<AssetServer>,
+        entity_count: Res<EntityCount>,
     ) {
+        commands.spawn((
+            PointLight {
+                shadows_enabled: true,
+                ..default()
+            },
+            Transform::from_xyz(4.0, 10.0, 4.0),
+            OnLevelOneScreen,
+        ));
         commands.spawn((
             SceneRoot(
                 asset_server.load(
@@ -122,8 +147,31 @@ mod level_one {
             ),
             OnLevelOneScreen,
         )).observe(on_structure_scene_spawn);
+
+        commands.spawn((
+            Text::new(format!("Cubes Spawned: ")),
+            TextFont {
+                font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
+                font_size: 30.0,
+                ..default()
+            },
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: px(5),
+                right: px(5),
+                ..default()
+            }
+        )).with_child((
+            TextSpan::new(format!("{:?}", entity_count.count)),
+            TextFont {
+                font_size: 30.0,
+                ..default()
+            },
+            EntitySpawnedText,
+        ));
     }
 
+    /// Upon exiting Level One, this cleans up all entities so they are not spilled into another GameState
     fn level_one_cleanup(
         mut commands: Commands,
         query: Query<Entity, With<OnLevelOneScreen>>,
@@ -133,9 +181,12 @@ mod level_one {
         }
     }
 
+    /// Spawns Cubes entities into the scene
     fn spawn_cubes(
         mut commands: Commands,
         asset_server: Res<AssetServer>,
+        mut query: Single<&mut TextSpan, With<EntitySpawnedText>>,
+        mut entity_count: ResMut<EntityCount>,
     ) {
         commands.spawn((
             SceneRoot(
@@ -144,8 +195,10 @@ mod level_one {
                         .from_asset("shapes.glb"),
                 ),
             ),
-            Transform::from_xyz(0.0, 10.0, 0.0),
+            Transform::from_xyz(0.0, 20.0, 0.0),
             OnLevelOneScreen,
         )).observe(on_shape_scene_spawn);
+        entity_count.count += 1;
+        query.0 = format!("{:?}", &entity_count.count);
     }
 }
