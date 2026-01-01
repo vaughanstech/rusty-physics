@@ -54,7 +54,7 @@ pub fn game_plugin(
             ).run_if(resource_equals(InteractionMode(InteractionModeType::Wrecker))),
             toggle_debug_render_state,
             game_action,
-        ).run_if(in_state(GameState::Game)))
+        ).run_if(in_state(GameState::Game).and(not(in_state(SimulationState::Paused)))))
         .add_systems(OnExit(GameState::Game), cleanup_game);
 }
 

@@ -48,14 +48,17 @@ mod level_one {
 
     use bevy::{prelude::*, time::common_conditions::on_timer};
 
-    use crate::{entity_pipeline::{on_shape_scene_spawn, on_structure_scene_spawn}, game::{ExampleViewports, SavedCameraTransforms}, levels::LevelState};
+    use crate::{entity_pipeline::{on_shape_scene_spawn, on_structure_scene_spawn}, game::ExampleViewports, levels::LevelState};
 
     pub fn level_one_plugin(
         app: &mut App,
     ) {
         app
             .add_systems(OnEnter(LevelState::ONE), (level_one_setup, initialize_cam))
-            .add_systems(Update, spawn_cubes.run_if(on_timer(Duration::from_secs(1)).and(in_state(LevelState::ONE))))
+            .add_systems(Update, (
+                spawn_cubes.run_if(on_timer(Duration::from_secs(1))),
+                rotate_level_one_cam,
+            ).run_if(in_state(LevelState::ONE)))
             // .add_systems(OnExit(GameState::Levels), level_one_camera_cleanup)
             .add_systems(OnExit(LevelState::ONE), level_one_cleanup);
     }
@@ -68,19 +71,42 @@ mod level_one {
 
     fn initialize_cam(
         mut commands: Commands,
-        saved_cam: Res<SavedCameraTransforms>,
     ) {
-        let transform = saved_cam.0.get("lvl_one_cam_last_pos")
-        .cloned()
-        .unwrap_or(Transform::from_xyz(0.0, 10.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y));
+        // let transform = saved_cam.0.get("lvl_one_cam_last_pos")
+        // .cloned()
+        // .unwrap_or(Transform::from_xyz(0.0, 10.0, 40.0).with_rotation(Quat::from_euler(EulerRot::ZYX, 0.0, time.elapsed_secs() * PI / 5.0, -FRAC_PI_4)).looking_at(Vec3::ZERO, Vec3::Y));
 
         commands.spawn((
             Camera3d::default(),
             ExampleViewports::_PerspectiveMain,
-            transform,
+            Transform::from_xyz(0.0, 10.0, 40.0).looking_at(Vec3::ZERO, Vec3::Y),
             LevelOneCamera,
             OnLevelOneScreen,
         ));
+    }
+
+    fn rotate_level_one_cam(
+        time: Res<Time>,
+        mut query: Query<&mut Transform, With<LevelOneCamera>>,
+    ) {
+        let radius = 40.0;
+        let speed = 0.5;
+        let vertical_offset = 10.0;
+
+        // Calculate the angle based on total elapsed time
+        let angle = time.elapsed_secs() * speed;
+
+        for mut transform in &mut query {
+            // Calculate new circular position on the XZ plane
+            let x = angle.cos() * radius;
+            let z = angle.sin() * radius;
+
+            // Apply new translation
+            transform.translation = Vec3::new(x, vertical_offset, z);
+
+            // Ensure the camera always points at the origin
+            transform.look_at(Vec3::ZERO, Vec3::Y);
+        }
     }
 
     fn level_one_setup(
