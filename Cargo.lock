@@ -4166,6 +4166,7 @@ dependencies = [
  "either",
  "ena",
  "foldhash 0.2.0",
+ "glam 0.30.9",
  "hashbrown 0.16.0",
  "log",
  "nalgebra",

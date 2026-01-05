@@ -46,20 +46,21 @@ pub fn level_action(
 mod level_one {
     use std::time::Duration;
 
+    use avian3d::prelude::{RigidBody, Sleeping};
     use bevy::{prelude::*, time::common_conditions::on_timer};
 
-    use crate::{entity_pipeline::{on_shape_scene_spawn, on_structure_scene_spawn}, game::ExampleViewports, levels::LevelState};
+    use crate::{SimulationState, entity_pipeline::{on_shape_scene_spawn, on_structure_scene_spawn}, game::ExampleViewports, levels::LevelState};
 
     pub fn level_one_plugin(
         app: &mut App,
     ) {
         app
-        .insert_resource(EntityCount::default())
+        .insert_resource(EntityStats::default())
             .add_systems(OnEnter(LevelState::ONE), (level_one_setup, initialize_cam))
             .add_systems(Update, (
                 spawn_cubes.run_if(on_timer(Duration::from_secs_f32(0.5))),
                 rotate_level_one_cam,
-            ).run_if(in_state(LevelState::ONE)))
+            ).run_if(in_state(LevelState::ONE)).run_if(in_state(SimulationState::Running).or(in_state(SimulationState::Paused))))
             // .add_systems(OnExit(GameState::Levels), level_one_camera_cleanup)
             .add_systems(OnExit(LevelState::ONE), level_one_cleanup);
     }
@@ -76,13 +77,20 @@ mod level_one {
     #[derive(Component)]
     struct EntitySpawnedText;
 
+    #[derive(Component)]
+    struct ActiveEntityCountSpawnedText;
+
     #[derive(Resource, Debug)]
-    struct EntityCount {
+    struct EntityStats {
         count: i32,
+        active_count: i32,
     }
-    impl Default for EntityCount {
+    impl Default for EntityStats {
         fn default() -> Self {
-            Self { count: 0 }
+            Self { 
+                count: 0,
+                active_count: 0,
+            }
         }
     }
 
@@ -128,7 +136,7 @@ mod level_one {
     fn level_one_setup(
         mut commands: Commands,
         asset_server: Res<AssetServer>,
-        entity_count: Res<EntityCount>,
+        entity_stats: Res<EntityStats>,
     ) {
         commands.spawn((
             PointLight {
@@ -149,7 +157,68 @@ mod level_one {
         )).observe(on_structure_scene_spawn);
 
         commands.spawn((
+            Text::new("Level One: Spawning Cubes"),
+            TextFont {
+                font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
+                font_size: 30.0,
+                ..default()
+            },
+            Node {
+                margin: UiRect { 
+                    left: auto(),
+                    right: auto(),
+                    top: Val::Px(20.0),
+                    ..default()},
+                ..default()
+            },
+            OnLevelOneScreen,
+        ));
+
+        commands.spawn((
+            Text::new("Press TAB to go to next chapter"),
+            TextFont {
+                font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
+                font_size: 20.0,
+                ..default()
+            },
+            Node {
+                position_type: PositionType::Relative,
+                margin: UiRect {
+                    left: auto(),
+                    right: auto(),
+                    ..default()
+                },
+                bottom: px(5),
+                ..default()
+            },
+            OnLevelOneScreen,
+        ));
+
+        commands.spawn((
             Text::new(format!("Cubes Spawned: ")),
+            TextFont {
+                font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
+                font_size: 30.0,
+                ..default()
+            },
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: px(5),
+                ..default()
+            },
+            OnLevelOneScreen,
+        )).with_child((
+            TextSpan::new(format!("{:?}", entity_stats.count)),
+            TextFont {
+                font_size: 30.0,
+                ..default()
+            },
+            EntitySpawnedText,
+            OnLevelOneScreen,
+        ));
+
+        commands.spawn((
+            Text::new("Active Entities: "),
             TextFont {
                 font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
                 font_size: 30.0,
@@ -160,14 +229,16 @@ mod level_one {
                 bottom: px(5),
                 right: px(5),
                 ..default()
-            }
+            },
+            OnLevelOneScreen,
         )).with_child((
-            TextSpan::new(format!("{:?}", entity_count.count)),
+            TextSpan::new(format!("{:?}", entity_stats.active_count)),
             TextFont {
                 font_size: 30.0,
                 ..default()
             },
-            EntitySpawnedText,
+            ActiveEntityCountSpawnedText,
+            OnLevelOneScreen,
         ));
     }
 
@@ -175,7 +246,10 @@ mod level_one {
     fn level_one_cleanup(
         mut commands: Commands,
         query: Query<Entity, With<OnLevelOneScreen>>,
+        mut entity_stats: ResMut<EntityStats>,
     ) {
+        entity_stats.count = 0;
+        entity_stats.active_count = 0;
         for entity in &query {
             commands.entity(entity).despawn();
         }
@@ -186,7 +260,9 @@ mod level_one {
         mut commands: Commands,
         asset_server: Res<AssetServer>,
         mut query: Single<&mut TextSpan, With<EntitySpawnedText>>,
-        mut entity_count: ResMut<EntityCount>,
+        mut query_active_entities_text: Single<&mut TextSpan, (With<ActiveEntityCountSpawnedText>, Without<EntitySpawnedText>)>,
+        active_entities: Query<Entity, (With<RigidBody>, Without<Sleeping>)>,
+        mut entity_count: ResMut<EntityStats>,
     ) {
         commands.spawn((
             SceneRoot(
@@ -199,6 +275,15 @@ mod level_one {
             OnLevelOneScreen,
         )).observe(on_shape_scene_spawn);
         entity_count.count += 1;
+        let active_count = active_entities.iter().count();
         query.0 = format!("{:?}", &entity_count.count);
+        query_active_entities_text.0 = format!("{:?}", &active_count);
     }
+
+    // fn count_active_bodies(
+    //     query: Query<Entity, (With<RigidBody>, Without<Sleeping>)>
+    // ) {
+    //     let active_count = query.iter().count();
+    //     info!("Active Rigid Bodies: {}", active_count);
+    // }
 }
