@@ -491,12 +491,10 @@ pub mod pause_menu {
         commands.spawn((
             DespawnOnExit(InGameMenuState::Base),
             Node {
-                width: Val::Auto,
                 height: vh(100),
                 margin: UiRect {left: Val::Auto, ..Default::default()},
                 display: Display::Flex,
                 flex_direction: FlexDirection::Column,
-                align_items: AlignItems::FlexEnd,
                 justify_content: JustifyContent::Center,
                 ..default()
             },

@@ -1,7 +1,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_egui::input::EguiWantsInput;
-use crate::game::{CursorDistance, FlyCamera};
+use crate::{game::FlyCamera, levels::LevelsFlyCamera};
 
 #[derive(Component)]
 pub struct ExampleLabel {
@@ -20,6 +20,9 @@ pub enum InteractionModeType {
     Impulse,
     Wrecker,
 }
+
+#[derive(Resource)]
+pub struct CursorDistance(pub f32);
 
 #[derive(Resource, PartialEq)]
 pub struct InteractionMode(pub InteractionModeType);
@@ -46,7 +49,7 @@ pub fn draw_impulse_cursor(
     mut labels: Query<(&mut Node, &ExampleLabel)>,
     mut text: Single<&mut Text, With<ImpulseCoords>>,
     labeled: Query<&GlobalTransform>,
-    camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
+    camera_query: Single<(&Camera, &GlobalTransform), Or<(With<FlyCamera>, With<LevelsFlyCamera>)>>,
     window: Single<&Window>,
     mut cursor_entity_query: Query<&mut Transform, With<ImpulseCursor>>,
 ) {
@@ -92,7 +95,7 @@ pub fn draw_wrecker_cursor(
     mut labels: Query<(&mut Node, &ExampleLabel)>,
     mut text: Single<&mut Text, With<WreckerCoords>>,
     labeled: Query<&GlobalTransform>,
-    camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
+    camera_query: Single<(&Camera, &GlobalTransform), Or<(With<FlyCamera>, With<LevelsFlyCamera>)>>,
     window: Single<&Window>,
     time: Res<Time>,
     mut wrecker_entity_query: Query<(&mut LinearVelocity, &mut Transform), With<WreckerCursor>>,
@@ -150,13 +153,20 @@ pub fn apply_force(
     mut forces: Query<(&Transform, Forces), (With<RigidBody>, Without<WreckerCursor>)>,
     impulse_settings: Res<ImpulseSettings>,
     window: Single<&Window>,
-    camera_query: Single<(&Camera, &GlobalTransform), With<FlyCamera>>,
+    camera_query: Single<(&Camera, &GlobalTransform), Or<(With<FlyCamera>, With<LevelsFlyCamera>)>>,
     mouse_input: Res<ButtonInput<MouseButton>>,
     egui_ctx: Res<EguiWantsInput>,
+    ui_interactions: Query<&Interaction>,
 ) {
     if egui_ctx.is_pointer_over_area() {
         return;
     }
+    for interaction in &ui_interactions {
+        if *interaction != Interaction::None {
+            return;
+        }
+    }
+    
     // let current_distance = distance.0;
     let (camera, camera_transform) = *camera_query;
     if let Some(cursor_position) = window.cursor_position()

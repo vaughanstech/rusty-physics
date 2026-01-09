@@ -250,23 +250,20 @@ pub enum ExampleViewports {
 pub struct FlyCamera;
 
 #[derive(Resource)]
-pub struct CameraSettings {
+struct CameraSettings {
     pub speed: f32, // camera movement speed
     pub sensitivity: f32, // mouse movement sensitivity
     pub zoom_speed: f32, // mouse scroll sensitivity
 }
 
 #[derive(Resource, Default)]
-pub struct CameraOrientation {
+struct CameraOrientation {
     pub yaw: f32,
     pub pitch: f32,
 }
 
-#[derive(Resource)]
-pub struct CursorDistance(pub f32);
-
 /// Initializes 3D camera
-pub fn setup_camera(
+fn setup_camera(
     mut commands: Commands,
     mut orientation: ResMut<CameraOrientation>,
 ) {
@@ -302,7 +299,7 @@ pub fn setup_camera(
 }
 
 /// Handles keyboard input for movement
-pub fn keyboard_movement(
+fn keyboard_movement(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     settings: Res<CameraSettings>,
@@ -345,7 +342,7 @@ pub fn keyboard_movement(
 }
 
 /// Handles mouse movement for looking around
-pub fn mouse_look(
+fn mouse_look(
     mut mouse_events: MessageReader<MouseMotion>,
     mouse_input: Res<ButtonInput<MouseButton>>,
     settings: Res<CameraSettings>,
@@ -375,7 +372,7 @@ pub fn mouse_look(
 }
 
 /// Handles mouse scroll wheel for zooming in/out of camera
-pub fn mouse_scroll(
+fn mouse_scroll(
     mut scroll_events: MessageReader<MouseWheel>,
     time: Res<Time>,
     settings: Res<CameraSettings>,
@@ -397,7 +394,7 @@ pub fn mouse_scroll(
     }
 }
 
-pub fn scroll_control(
+fn scroll_control(
     mut scroll_events: MessageReader<MouseWheel>,
     mut distance: ResMut<CursorDistance>,
 ) {
