@@ -1,5 +1,5 @@
 
-use bevy::{app::{App, Update}, ecs::{component::Component, schedule::IntoScheduleConfigs, system::{Res, ResMut}}, input::{ButtonInput, keyboard::KeyCode}, state::{app::AppExtStates, condition::in_state, state::{NextState, OnEnter, State, States}}};
+use bevy::{app::{App, Update}, ecs::{component::Component, schedule::IntoScheduleConfigs, system::{Res, ResMut}}, input::{ButtonInput, keyboard::KeyCode}, log::info, state::{app::AppExtStates, condition::in_state, state::{NextState, OnEnter, State, States}}};
 use strum::{IntoEnumIterator, EnumIter};
 
 use crate::{GameState, SimulationState, menus::pause_menu::InGameMenuState};
@@ -8,6 +8,7 @@ use crate::{GameState, SimulationState, menus::pause_menu::InGameMenuState};
 pub enum LevelState {
     ONE,
     TWO,
+    THREE,
     #[default]
     Disabled,
 }
@@ -24,6 +25,7 @@ pub fn levels_plugin(
         .add_plugins((
             level_one::level_one_plugin,
             level_two::level_two_plugin,
+            level_three::level_three_plugin,
         ))
         .add_systems(Update, level_action.run_if(in_state(GameState::Levels)));
 }
@@ -197,6 +199,7 @@ mod level_helpers {
     }
 }
 
+/// Spawn Cubes
 mod level_one {
     use std::time::Duration;
 
@@ -440,6 +443,7 @@ mod level_one {
     // }
 }
 
+/// Impulse Force
 mod level_two {
     use bevy::{app::{App, Update}, camera::{Camera3d, visibility::Visibility}, color::{self, Color}, ecs::{children, component::Component, entity::Entity, query::{Changed, With, Without}, schedule::{IntoScheduleConfigs, SystemCondition}, system::{Commands, Query, Res, ResMut, Single}}, gltf::GltfAssetLabel, light::PointLight, math::Vec3, prelude::SpawnRelated, scene::SceneRoot, state::{condition::in_state, state::{OnEnter, OnExit}}, text::{TextColor, TextFont, TextLayout, TextSpan}, transform::components::Transform, ui::{AlignItems, BackgroundColor, Display, FlexDirection, Interaction, JustifyContent, Node, PositionType, UiRect, Val, auto, percent, px, vh, widget::{Button, Text}}, utils::default};
     use bevy_asset::AssetServer;
@@ -944,6 +948,431 @@ mod level_two {
     ) {
         impulse_settings.blast_radius = 50.0;
         impulse_settings.max_force = 100.0;
+        for entity in &query {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Wrecker Ball
+mod level_three {
+    use avian3d::prelude::{Collider, RigidBody};
+    use bevy::{color, prelude::*};
+    use rand::Rng;
+
+    use crate::{SimulationState, entity_pipeline::{on_level_scene_spawn, on_structure_scene_spawn}, game::ExampleViewports, interactions::{CursorDistance, ExampleLabel, WreckerCoords, WreckerCursor, draw_wrecker_cursor, set_wrecker_cursor_visibility}, levels::{LevelState, LevelsFlyCamera, level_helpers::scroll_control}};
+    
+    pub fn level_three_plugin(
+        app: &mut App,
+    ) {
+        app
+            .add_systems(OnEnter(LevelState::THREE), (level_three_setup, initialize_cam))
+            .insert_resource(CursorDistance(10.0))
+            .add_systems(Update, (
+                scroll_control,
+                draw_wrecker_cursor,
+                lvl_three_button_system,
+                lvl_three_action_controls,
+                track_wrecker_settings,
+                set_wrecker_cursor_visibility::<true>,
+            ).run_if(in_state(LevelState::THREE)).run_if(in_state(SimulationState::Running).or(in_state(SimulationState::Paused))))
+            .add_systems(OnExit(LevelState::THREE), level_three_cleanup);
+    }
+
+    #[derive(Component)]
+    struct OnLevelThreeScreen;
+
+    #[derive(Component)]
+    struct SelectedOption;
+
+    #[derive(Component)]
+
+    struct LevelThreeCamera;
+
+    #[derive(Component)]
+    struct Lvl3StructureTag;
+
+    #[derive(Component)]
+    struct WreckerBallScaleTag;
+
+    #[derive(Component)]
+    enum WreckerControlsBunttonAction {
+        WreckerScaleDecrease,
+        WreckerScaleIncrease,
+        ResetScene,
+    }
+
+    const NORMAL_BUTTON: Color = Color::srgb(0.15, 0.15, 0.15);
+    const HOVERED_BUTTON: Color = Color::srgb(0.25, 0.25, 0.25);
+    const HOVERED_PRESSED_BUTTON: Color = Color::srgb(0.25, 0.65, 0.25);
+    const PRESSED_BUTTON: Color = Color::srgb(0.35, 0.75, 0.35);
+
+    fn initialize_cam(
+        mut commands: Commands,
+    ) {
+        commands.spawn((
+            Camera3d::default(),
+            ExampleViewports::_PerspectiveMain,
+            Transform::from_xyz(0.0, 10.0, 40.0).looking_at(Vec3::ZERO, Vec3::Y),
+            LevelThreeCamera,
+            OnLevelThreeScreen,
+            LevelsFlyCamera,
+        ));
+    }
+
+    fn level_three_setup(
+        mut commands: Commands,
+        mut meshes: ResMut<Assets<Mesh>>,
+        mut materials: ResMut<Assets<StandardMaterial>>,
+        asset_server: Res<AssetServer>,
+    ) {
+        commands.spawn((
+            PointLight {
+                shadows_enabled: true,
+                ..default()
+            },
+            Transform::from_xyz(4.0, 10.0, 4.0),
+            OnLevelThreeScreen,
+        ));
+        commands.spawn((
+            SceneRoot(
+                asset_server.load(
+                    GltfAssetLabel::Scene(0)
+                    .from_asset("maps.glb"),
+                )
+            ),
+            OnLevelThreeScreen,
+        )).observe(on_level_scene_spawn);
+
+        let mut rng = rand::rng();
+        // let structure_nums: Vec<i32> = (0..3).collect();
+        // let coord_nums: Vec<i32> = (0..25).collect();
+        for _ in 0..5 {
+            commands.spawn((
+                SceneRoot(
+                    asset_server.load(
+                        GltfAssetLabel::Scene(rng.random_range(0..2))
+                        .from_asset("structures.glb")
+                    )
+                ),
+                Transform::from_xyz(rng.random_range(-10.0..10.0), 0.0, rng.random_range(0.0..10.0)),
+                OnLevelThreeScreen,
+                Lvl3StructureTag,
+            )).observe(on_structure_scene_spawn);
+        }
+
+        let text_style = TextFont {
+            font: asset_server.load(r"fonts\FiraMono-Medium.ttf"),
+            ..Default::default()
+        };
+        
+        let sphere = meshes.add(Sphere::new(0.5));
+        let wrecker_ball = commands.spawn((
+            Mesh3d(sphere.clone()),
+            MeshMaterial3d(materials.add(Color::srgb(0.0, 0.0, 1.0))),
+            Transform::from_xyz(0.0, 10.0, 0.0),
+            Collider::sphere(0.5),
+            RigidBody::Kinematic,
+            Visibility::Hidden,
+            OnLevelThreeScreen,
+        ))
+        .insert(WreckerCursor).id();
+
+        let label_text_style = (text_style.clone(), TextColor(color::palettes::css::ORANGE.into()));
+
+        let mut wrecker_label = |entity: Entity, label: &str| {
+            commands.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+                ExampleLabel { entity },
+                children![(
+                    Text::new(label),
+                    label_text_style.clone(),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        bottom: Val::ZERO,
+                        ..default()
+                    },
+                    TextLayout::default().with_no_wrap(),
+                    WreckerCoords,
+                )],
+                Visibility::Hidden,
+                OnLevelThreeScreen,
+            )).insert(WreckerCursor);
+        };
+        wrecker_label(wrecker_ball, "┌─ Wrecker: (0.00, 0.00, 0.00)");
+
+        commands.spawn((
+            Text::new("Level Three: Wrecker Ball"),
+            TextFont {
+                font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
+                font_size: 30.0,
+                ..default()
+            },
+            Node {
+                margin: UiRect {
+                    left: auto(),
+                    right: auto(),
+                    top: Val::Px(20.0),
+                    ..default()
+                },
+                ..default()
+            },
+            OnLevelThreeScreen,
+        ));
+        commands.spawn((
+            Text::new(
+                "Demonstrates Kinematic effects on dynamic rigid bodies."
+            ),
+            TextFont {
+                font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
+                font_size: 20.0,
+                ..default()
+            },
+            Node {
+                position_type: PositionType::Relative,
+                margin: UiRect {
+                    left: auto(),
+                    right: auto(),
+                    ..default()
+                },
+                ..default()
+            },
+            OnLevelThreeScreen,
+        ));
+
+        let button_node = Node {
+            width: px(50),
+            height: px(30),
+            margin: UiRect::all(px(10)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        };
+        let button_text_font = TextFont {
+            font_size: 20.0,
+            ..default()
+        };
+
+        commands.spawn((
+            Node { // container
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::FlexEnd,
+                align_items: AlignItems::Center,
+                height: vh(100),
+                width: percent(100.0),
+                ..default()
+            },
+            OnLevelThreeScreen,
+            children![
+                (
+                    Text::new("The cursor's coordinates indicate where the Wrecker ball is at the moment. The amount of velocity you move your cursor will effect the amount of force the Wrecker ball has on rigid bodies."),
+                    TextFont {
+                        font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
+                        font_size: 12.0,
+                        ..default()
+                    },
+                ),
+                (
+                    Node { // box
+                        display: Display::Flex,
+                        flex_direction: FlexDirection::Column,
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        width: percent(100),
+                        height: percent(15),
+                        ..default()
+                    },
+                    BackgroundColor(color::palettes::css::CRIMSON.into()),
+                    children![
+                        (
+                            Node { // row-buttons
+                                display: Display::Flex,
+                                flex_direction: FlexDirection::Row,
+                                column_gap: px(75),
+                                top: px(10),
+                                bottom: px(20),
+                                ..default()
+                            },
+                            children![
+                                (
+                                   Node { // scale-buttons
+                                    display: Display::Flex,
+                                    flex_direction: FlexDirection::Column,
+                                    align_items: AlignItems::Center,
+                                    justify_content: JustifyContent::Center,
+                                    ..default()
+                                   },
+                                   children![
+                                        (
+                                            Text::new("Wrecker Scale: "),
+                                            TextFont {
+                                                font: asset_server.load(r"fonts\FiraMono-Medium.ttf"),
+                                                font_size: 30.0,
+                                                ..default()
+                                            },
+                                            children![(
+                                                TextSpan::new("1.0"),
+                                                TextFont {
+                                                    font: asset_server.load(r"fonts\FiraMono-Medium.ttf"),
+                                                    font_size: 30.0,
+                                                    ..default()
+                                                },
+                                                WreckerBallScaleTag,
+                                            )]
+                                        ),
+                                        (
+                                            Node { // radius-button-row
+                                                display: Display::Flex,
+                                                flex_direction: FlexDirection::Row,
+                                                column_gap: px(5.0),
+                                                ..default()
+                                            },
+                                            children![
+                                                (
+                                                    Button,
+                                                    button_node.clone(),
+                                                    BackgroundColor(NORMAL_BUTTON),
+                                                    WreckerControlsBunttonAction::WreckerScaleDecrease,
+                                                    children![
+                                                        (
+                                                            Text::new("-"),
+                                                            button_text_font.clone(),
+                                                            TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                                                        )
+                                                    ]
+                                                ),
+                                                (
+                                                    Button,
+                                                    button_node.clone(),
+                                                    BackgroundColor(NORMAL_BUTTON),
+                                                    WreckerControlsBunttonAction::WreckerScaleIncrease,
+                                                    children![
+                                                        (
+                                                            Text::new("+"),
+                                                            button_text_font.clone(),
+                                                            TextColor(Color::srgb(0.9, 0.9, 0.9)),
+                                                        )
+                                                    ]
+                                                ),
+                                            ],
+                                        ),
+                                    ]
+                                ),
+                                (
+                                    Node { // reset-scene
+                                        display: Display::Flex,
+                                        flex_direction: FlexDirection::Column,
+                                        align_items: AlignItems::Center,
+                                        justify_content: JustifyContent::Center,
+                                        ..default()
+                                    },
+                                    children![
+                                        (
+                                            Text::new("Reset Scene"),
+                                            TextFont {
+                                                font: asset_server.load(r"fonts\FiraMono-Medium.ttf"),
+                                                font_size: 30.0,
+                                                ..default()
+                                            },
+                                        ),
+                                        (
+                                            Button,
+                                            button_node.clone(),
+                                            BackgroundColor(NORMAL_BUTTON),
+                                            WreckerControlsBunttonAction::ResetScene,
+                                            children![
+                                                (
+                                                    Text::new(" "),
+                                                    button_text_font.clone(),
+                                                )
+                                            ]
+                                        )
+                                    ]
+                                ),
+                            ]
+                        )
+                    ]
+                )
+            ]
+        ));
+    }
+
+    /// System used for adding visual interactions to buttons in UI
+    fn lvl_three_button_system(
+        mut interaction_query: Query<(&Interaction, &mut BackgroundColor, Option<&SelectedOption>), (Changed<Interaction>, With<Button>)>
+    ) {
+        for (interaction, mut background_color, selected) in &mut interaction_query {
+            *background_color = match (*interaction, selected) {
+                (Interaction::Pressed, _) | (Interaction::None, Some(_)) => PRESSED_BUTTON.into(),
+                (Interaction::Hovered, Some(_)) => HOVERED_PRESSED_BUTTON.into(),
+                (Interaction::Hovered, None) => HOVERED_BUTTON.into(),
+                (Interaction::None, None) => NORMAL_BUTTON.into(),
+            }
+        }
+    }
+
+    /// Manages controls to update the value of the wrecker ball scale and support resetting the scene
+    fn lvl_three_action_controls(
+        mut commands: Commands,
+        asset_server: Res<AssetServer>,
+        interaction_query: Query<(&Interaction, &mut WreckerControlsBunttonAction), (Changed<Interaction>, With<Button>)>,
+        mut wrecker_query: Single<&mut Transform, With<WreckerCursor>>,
+        structure_query: Query<Entity, With<Lvl3StructureTag>>,
+    ) {
+        for (interaction, wrecker_controls_button_action) in &interaction_query {
+            if *interaction == Interaction::Pressed {
+                match wrecker_controls_button_action {
+                    WreckerControlsBunttonAction::WreckerScaleDecrease => {
+                        if wrecker_query.scale == vec3(1.0, 1.0, 1.0) {
+                            return;
+                        }
+                        wrecker_query.scale -= 1.0;
+                    }
+                    WreckerControlsBunttonAction::WreckerScaleIncrease => {
+                        wrecker_query.scale += 1.0;
+                    }
+                    WreckerControlsBunttonAction::ResetScene => {
+                        // Delete all structures in the level
+                        for entity in &structure_query {
+                            commands.entity(entity).despawn();
+                        }
+
+                        // run same logic to respawn all structures in random locations
+                        let mut rng = rand::rng();
+                        for _ in 0..5 {
+                            commands.spawn((
+                                SceneRoot(
+                                    asset_server.load(
+                                        GltfAssetLabel::Scene(rng.random_range(0..2))
+                                        .from_asset("structures.glb")
+                                    )
+                                ),
+                                Transform::from_xyz(rng.random_range(-10.0..10.0), 0.0, rng.random_range(0.0..10.0)),
+                                OnLevelThreeScreen,
+                                Lvl3StructureTag,
+                            )).observe(on_structure_scene_spawn);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn track_wrecker_settings(
+        wrecker_query: Single<&Transform, With<WreckerCursor>>,
+        mut wrecker_scale_text_query: Single<&mut TextSpan, With<WreckerBallScaleTag>>,
+    ) {
+        wrecker_scale_text_query.0 = format!("{:.1}", wrecker_query.scale.x);
+    }
+
+    fn level_three_cleanup(
+        mut commands: Commands,
+        query: Query<Entity, With<OnLevelThreeScreen>>,
+    ) {
         for entity in &query {
             commands.entity(entity).despawn();
         }
