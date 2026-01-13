@@ -215,6 +215,18 @@ pub fn set_wrecker_cursor_visibility<const VISIBLE: bool>(
     }
 }
 
+/// System used to reset the cursor position to the center of the screen
+pub fn center_cursor(
+    mut window: Single<&mut Window>,
+) {
+    // Calculate the center of the window in physical pixels
+    let center_x = window.physical_size().x as f32 / 2.0;
+    let center_y = window.physical_size().y as f32 / 2.0;
+
+    // Set the new cursor position
+    window.set_cursor_position(Some(Vec2::new(center_x, center_y)));
+}
+
 pub mod interactive_menu {
     use bevy::prelude::* ;
     use bevy_asset::{AssetServer};

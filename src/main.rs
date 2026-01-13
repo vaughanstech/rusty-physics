@@ -100,17 +100,11 @@ fn set_max_fps(
         SetFps::Low => 30.0,
         SetFps::Medium => 60.0,
         SetFps::High => 120.0,
-        SetFps::Uncapped => 0.0,
+        SetFps::Uncapped => 240.0,
     };
-    
-    // Actually setting global max fps
-    if *fps_limit == SetFps::Uncapped {
-        settings.limiter = Limiter::Off;
-    } else {
-        // Setting the Physics time equal to the max framerate
-        commands.insert_resource(Time::<Fixed>::from_hz(fps));
-        settings.limiter = Limiter::from_framerate(fps);
-    }
+    // Setting the Physics time equal to the max framerate
+    commands.insert_resource(Time::<Fixed>::from_hz(fps));
+    settings.limiter = Limiter::from_framerate(fps);
 }
 
 /// Tracks frames per second

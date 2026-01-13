@@ -1,8 +1,8 @@
 
-use bevy::{app::{App, Update}, ecs::{component::Component, schedule::IntoScheduleConfigs, system::{Res, ResMut}}, input::{ButtonInput, keyboard::KeyCode}, log::info, state::{app::AppExtStates, condition::in_state, state::{NextState, OnEnter, State, States}}};
+use bevy::{app::{App, Update}, ecs::{component::Component, schedule::{IntoScheduleConfigs, common_conditions::not}, system::{Res, ResMut}}, input::{ButtonInput, keyboard::KeyCode}, state::{app::AppExtStates, condition::in_state, state::{NextState, OnEnter, State, States}}};
 use strum::{IntoEnumIterator, EnumIter};
 
-use crate::{GameState, SimulationState, menus::pause_menu::InGameMenuState};
+use crate::{GameState, SimulationState, levels::level_four::LevelFourState, menus::pause_menu::InGameMenuState};
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States, EnumIter)]
 pub enum LevelState {
@@ -29,7 +29,7 @@ pub fn levels_plugin(
             level_three::level_three_plugin,
             level_four::level_four_plugin,
         ))
-        .add_systems(Update, level_action.run_if(in_state(GameState::Levels)));
+        .add_systems(Update, level_action.run_if(in_state(GameState::Levels)).run_if(not(in_state(LevelFourState::Loading))));
 }
 
 fn levels_setup(
@@ -70,120 +70,120 @@ pub fn level_action(
 
 /// Collection of Helper functions/components/resources to assist in Level development
 mod level_helpers {
-    use bevy::{ecs::{component::Component, message::MessageReader, query::With, resource::Resource, system::{Query, Res, ResMut}}, input::{ButtonInput, keyboard::KeyCode, mouse::{MouseButton, MouseMotion, MouseWheel}}, math::{Quat, Vec2, Vec3}, time::Time, transform::components::Transform};
+    use bevy::{ecs::{message::MessageReader, system::ResMut}, input::mouse::MouseWheel};
 
-    use crate::{interactions::CursorDistance, levels::LevelsFlyCamera};
+    use crate::{interactions::CursorDistance};
 
-    #[derive(Resource, Default)]
-    pub(crate) struct LevelsCameraOrientation {
-        pub(crate) yaw: f32,
-        pub(crate) pitch: f32,
-    }
+    // #[derive(Resource, Default)]
+    // pub(crate) struct LevelsCameraOrientation {
+    //     pub(crate) yaw: f32,
+    //     pub(crate) pitch: f32,
+    // }
 
-    #[derive(Resource)]
-    pub(crate) struct LevelsCameraSettings {
-        pub(crate) speed: f32,
-        pub(crate) sensitivity: f32,
-        pub(crate) zoom_speed: f32,
-    }
+    // #[derive(Resource)]
+    // pub(crate) struct LevelsCameraSettings {
+    //     pub(crate) speed: f32,
+    //     pub(crate) sensitivity: f32,
+    //     pub(crate) zoom_speed: f32,
+    // }
 
-    #[derive(Resource)]
-    pub(crate) struct LevelsCursorDistance(pub(crate) f32);
+    // #[derive(Resource)]
+    // pub(crate) struct LevelsCursorDistance(pub(crate) f32);
 
-    pub(crate) fn keyboard_movement(
-        keyboard_input: Res<ButtonInput<KeyCode>>,
-        time: Res<Time>,
-        settings: Res<LevelsCameraSettings>,
-        mut query: Query<&mut Transform, With<LevelsFlyCamera>>,
-    ) {
-        for mut transform in &mut query {
-            let mut direction = Vec3::ZERO;
+    // pub(crate) fn keyboard_movement(
+    //     keyboard_input: Res<ButtonInput<KeyCode>>,
+    //     time: Res<Time>,
+    //     settings: Res<LevelsCameraSettings>,
+    //     mut query: Query<&mut Transform, With<LevelsFlyCamera>>,
+    // ) {
+    //     for mut transform in &mut query {
+    //         let mut direction = Vec3::ZERO;
 
-            // local forward and right vectors relative to camera
-            let forward = -transform.local_z();
-            let right = transform.right();
+    //         // local forward and right vectors relative to camera
+    //         let forward = -transform.local_z();
+    //         let right = transform.right();
 
-            // WASD movement
-            if keyboard_input.pressed(KeyCode::KeyW) {
-                direction += *forward;
-            }
-            if keyboard_input.pressed(KeyCode::KeyS) {
-                direction -= *forward;
-            }
-            if keyboard_input.pressed(KeyCode::KeyA) {
-                direction -= *right;
-            }
-            if keyboard_input.pressed(KeyCode::KeyD) {
-                direction += *right;
-            }
+    //         // WASD movement
+    //         if keyboard_input.pressed(KeyCode::KeyW) {
+    //             direction += *forward;
+    //         }
+    //         if keyboard_input.pressed(KeyCode::KeyS) {
+    //             direction -= *forward;
+    //         }
+    //         if keyboard_input.pressed(KeyCode::KeyA) {
+    //             direction -= *right;
+    //         }
+    //         if keyboard_input.pressed(KeyCode::KeyD) {
+    //             direction += *right;
+    //         }
 
-            // Up/Down
-            if keyboard_input.pressed(KeyCode::Space) {
-                direction += Vec3::Y;
-            }
-            if keyboard_input.pressed(KeyCode::ShiftLeft) {
-                direction -= Vec3::Y;
-            }
+    //         // Up/Down
+    //         if keyboard_input.pressed(KeyCode::Space) {
+    //             direction += Vec3::Y;
+    //         }
+    //         if keyboard_input.pressed(KeyCode::ShiftLeft) {
+    //             direction -= Vec3::Y;
+    //         }
 
-            if direction.length_squared() > 0.0 {
-                direction = direction.normalize();
-                transform.translation += direction * settings.speed * time.delta_secs();
-            }
-        }
-    }
+    //         if direction.length_squared() > 0.0 {
+    //             direction = direction.normalize();
+    //             transform.translation += direction * settings.speed * time.delta_secs();
+    //         }
+    //     }
+    // }
 
-    /// Handles mouse movement for looking around
-    pub(crate) fn mouse_look(
-        mut mouse_events: MessageReader<MouseMotion>,
-        mouse_input: Res<ButtonInput<MouseButton>>,
-        settings: Res<LevelsCameraSettings>,
-        mut orientation: ResMut<LevelsCameraOrientation>,
-        mut query: Query<&mut Transform, With<LevelsFlyCamera>>,
-    ) {
-        let mut delta = Vec2::ZERO;
-        if mouse_input.pressed(MouseButton::Middle) {
-            for event in mouse_events.read() {
-                delta += event.delta;
-            }
-        }
+    // /// Handles mouse movement for looking around
+    // pub(crate) fn mouse_look(
+    //     mut mouse_events: MessageReader<MouseMotion>,
+    //     mouse_input: Res<ButtonInput<MouseButton>>,
+    //     settings: Res<LevelsCameraSettings>,
+    //     mut orientation: ResMut<LevelsCameraOrientation>,
+    //     mut query: Query<&mut Transform, With<LevelsFlyCamera>>,
+    // ) {
+    //     let mut delta = Vec2::ZERO;
+    //     if mouse_input.pressed(MouseButton::Middle) {
+    //         for event in mouse_events.read() {
+    //             delta += event.delta;
+    //         }
+    //     }
 
-        if delta.length_squared() == 0.0 {
-            return;
-        }
+    //     if delta.length_squared() == 0.0 {
+    //         return;
+    //     }
 
-        // update yaw and pitch
-        orientation.yaw -= delta.x * settings.sensitivity;
-        orientation.pitch -= delta.y * settings.sensitivity;
-        orientation.pitch = orientation.pitch.clamp(-1.54, 1.54); // prevent flipping
+    //     // update yaw and pitch
+    //     orientation.yaw -= delta.x * settings.sensitivity;
+    //     orientation.pitch -= delta.y * settings.sensitivity;
+    //     orientation.pitch = orientation.pitch.clamp(-1.54, 1.54); // prevent flipping
 
-        // apply rotation to camera transformation
-        for mut transform in &mut query {
-            transform.rotation = Quat::from_axis_angle(Vec3::Y, orientation.yaw) * Quat::from_axis_angle(Vec3::X, orientation.pitch);
-        }
-    }
+    //     // apply rotation to camera transformation
+    //     for mut transform in &mut query {
+    //         transform.rotation = Quat::from_axis_angle(Vec3::Y, orientation.yaw) * Quat::from_axis_angle(Vec3::X, orientation.pitch);
+    //     }
+    // }
 
-    /// Handles mouse scroll wheel for zooming in/out of camera
-    pub(crate) fn mouse_scroll(
-        mut scroll_events: MessageReader<MouseWheel>,
-        time: Res<Time>,
-        settings: Res<LevelsCameraSettings>,
-        mut query: Query<&mut Transform, With<LevelsFlyCamera>>,
-    ) {
-        let mut scroll_delta = 0.0;
-        for event in scroll_events.read() {
-            // scroll up = zoom in
-            scroll_delta += event.y
-        }
+    // /// Handles mouse scroll wheel for zooming in/out of camera
+    // pub(crate) fn mouse_scroll(
+    //     mut scroll_events: MessageReader<MouseWheel>,
+    //     time: Res<Time>,
+    //     settings: Res<LevelsCameraSettings>,
+    //     mut query: Query<&mut Transform, With<LevelsFlyCamera>>,
+    // ) {
+    //     let mut scroll_delta = 0.0;
+    //     for event in scroll_events.read() {
+    //         // scroll up = zoom in
+    //         scroll_delta += event.y
+    //     }
 
-        if scroll_delta.abs() < f32::EPSILON {
-            return;
-        }
+    //     if scroll_delta.abs() < f32::EPSILON {
+    //         return;
+    //     }
 
-        for mut transform in &mut query {
-            let forward = transform.forward();
-            transform.translation += forward * scroll_delta * settings.zoom_speed * time.delta_secs();
-        }
-    }
+    //     for mut transform in &mut query {
+    //         let forward = transform.forward();
+    //         transform.translation += forward * scroll_delta * settings.zoom_speed * time.delta_secs();
+    //     }
+    // }
 
     pub(crate) fn scroll_control(
         mut scroll_events: MessageReader<MouseWheel>,
@@ -557,6 +557,7 @@ mod level_two {
             OnLevelTwoScreen,
         ))
         .insert(ImpulseCursor).id();
+
         let text_style = TextFont {
             font: asset_server.load(r"fonts\FiraMono-Medium.ttf"),
             ..Default::default()
@@ -962,7 +963,7 @@ mod level_three {
     use bevy::{color, prelude::*};
     use rand::Rng;
 
-    use crate::{SimulationState, entity_pipeline::{on_level_scene_spawn, on_structure_scene_spawn}, game::ExampleViewports, interactions::{CursorDistance, ExampleLabel, WreckerCoords, WreckerCursor, draw_wrecker_cursor, set_wrecker_cursor_visibility}, levels::{LevelState, LevelsFlyCamera, level_helpers::scroll_control}};
+    use crate::{SimulationState, entity_pipeline::{on_level_scene_spawn, on_structure_scene_spawn}, game::ExampleViewports, interactions::{CursorDistance, ExampleLabel, WreckerCoords, WreckerCursor, center_cursor, draw_wrecker_cursor, set_wrecker_cursor_visibility}, levels::{LevelState, LevelsFlyCamera, level_helpers::scroll_control}};
     
     pub fn level_three_plugin(
         app: &mut App,
@@ -978,7 +979,7 @@ mod level_three {
                 track_wrecker_settings,
                 set_wrecker_cursor_visibility::<true>,
             ).run_if(in_state(LevelState::THREE)).run_if(in_state(SimulationState::Running).or(in_state(SimulationState::Paused))))
-            .add_systems(OnExit(LevelState::THREE), level_three_cleanup);
+            .add_systems(OnExit(LevelState::THREE), (level_three_cleanup, center_cursor));
     }
 
     #[derive(Component)]
@@ -1391,7 +1392,7 @@ mod level_four {
     use rand::Rng;
     use strum::EnumIter;
 
-    use crate::{SimulationState, entity_pipeline::{StructureBlock, on_level_scene_spawn, on_structure_scene_spawn}, game::ExampleViewports, levels::LevelState};
+    use crate::{SimulationState, entity_pipeline::{StructureBlock, on_level_scene_spawn, on_structure_scene_spawn}, game::ExampleViewports, interactions::center_cursor, levels::LevelState};
 
     
     pub fn level_four_plugin(
@@ -1410,12 +1411,12 @@ mod level_four {
                 lvl_four_button_system,
                 lvl_four_action_controls
             ).run_if(in_state(LevelFourState::Running)).run_if(in_state(LevelState::FOUR)).run_if(in_state(SimulationState::Running).or(in_state(SimulationState::Paused))))
-            .add_systems(OnExit(LevelState::FOUR), level_four_cleanup);
+            .add_systems(OnExit(LevelState::FOUR), (level_four_cleanup, center_cursor));
     }
 
     /// Keeps track of internal states inside of Level 4
     #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States, EnumIter)]
-    pub enum LevelFourState {
+    pub(crate) enum LevelFourState {
         #[default]
         Start,
         Loading,
@@ -1592,10 +1593,6 @@ mod level_four {
             font_size: 20.0,
             ..default()
         };
-        let text_style = TextFont {
-            font: asset_server.load(r"fonts\FiraMono-Medium.ttf"),
-            ..Default::default()
-        };
 
         commands.spawn((
             Node { // container
@@ -1736,6 +1733,7 @@ mod level_four {
         commands.spawn((
             Camera3d::default(),
             OnLevelFourLoadingScreen,
+            OnLevelFourScreen,
         ));
         commands.spawn((
             Text::new("Loading Level..."),
@@ -1748,6 +1746,7 @@ mod level_four {
                 margin: UiRect::all(auto()),
                 ..default()
             },
+            OnLevelFourScreen,
             OnLevelFourLoadingScreen,
         ));
         let mut timer = Timer::new(Duration::from_secs(4), TimerMode::Once);
@@ -1780,7 +1779,7 @@ mod level_four {
         mut materials: ResMut<Assets<StandardMaterial>>,
     ) {
         let mut rng = rand::rng();
-        let radius = rng.random_range(0.5..2.0);
+        // let radius = rng.random_range(0.5..2.0);
         let sphere = meshes.add(Sphere::new(0.5));
         commands.spawn((
             Mesh3d(sphere.clone()),
