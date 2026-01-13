@@ -26,6 +26,9 @@ pub enum BRigidBody {
     Dynamic,
 }
 
+#[derive(Component)]
+pub struct StructureBlock;
+
 /// Process all entities within an newly loaded scene instance
 /// and apply physics components based on GLTF extras
 pub fn process_gltf_descendants(
@@ -79,6 +82,7 @@ pub fn process_gltf_descendants(
                         BRigidBody::Static => RigidBody::Static,
                         BRigidBody::Dynamic => RigidBody::Dynamic,
                     },
+                    StructureBlock,
                     Mass(100.0),
                     CenterOfMass::default(),
                     Collider::cuboid(scaled_size.x, scaled_size.y, scaled_size.z),

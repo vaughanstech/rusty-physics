@@ -9,6 +9,7 @@ pub enum LevelState {
     ONE,
     TWO,
     THREE,
+    FOUR,
     #[default]
     Disabled,
 }
@@ -26,6 +27,7 @@ pub fn levels_plugin(
             level_one::level_one_plugin,
             level_two::level_two_plugin,
             level_three::level_three_plugin,
+            level_four::level_four_plugin,
         ))
         .add_systems(Update, level_action.run_if(in_state(GameState::Levels)));
 }
@@ -1372,6 +1374,455 @@ mod level_three {
     fn level_three_cleanup(
         mut commands: Commands,
         query: Query<Entity, With<OnLevelThreeScreen>>,
+    ) {
+        for entity in &query {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Asteroids
+mod level_four {
+    use std::time::Duration;
+
+    use avian3d::prelude::{Collider, ConstantForce, Mass, RigidBody};
+    use bevy::{color, prelude::*, time::common_conditions::on_timer};
+    use bevy_asset::{AssetServer, Assets};
+    use rand::Rng;
+    use strum::EnumIter;
+
+    use crate::{SimulationState, entity_pipeline::{StructureBlock, on_level_scene_spawn, on_structure_scene_spawn}, game::ExampleViewports, levels::LevelState};
+
+    
+    pub fn level_four_plugin(
+        app: &mut App,
+    ) {
+        app
+            .init_state::<LevelFourState>()
+            .add_systems(OnEnter(LevelState::FOUR), level_four_setup)
+            .add_systems(OnEnter(LevelFourState::Loading), setup_delay_timer)
+            .add_systems(Update, check_delay_timer.run_if(in_state(LevelFourState::Loading)))
+            .add_systems(OnEnter(LevelFourState::Running), (initialize_cam, cleanup_loading_screen, level_four_text))
+            .add_systems(Update, (
+                rotate_level_four_cam,
+                spawn_asteroids.run_if(on_timer(Duration::from_secs_f32(0.2))),
+                despawn_asteroids,
+                lvl_four_button_system,
+                lvl_four_action_controls
+            ).run_if(in_state(LevelFourState::Running)).run_if(in_state(LevelState::FOUR)).run_if(in_state(SimulationState::Running).or(in_state(SimulationState::Paused))))
+            .add_systems(OnExit(LevelState::FOUR), level_four_cleanup);
+    }
+
+    /// Keeps track of internal states inside of Level 4
+    #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States, EnumIter)]
+    pub enum LevelFourState {
+        #[default]
+        Start,
+        Loading,
+        Running,
+    }
+
+    /// Used to delay the execution of the level until all entities are loaded
+    #[derive(Component)]
+    struct DelayTimer(Timer);
+
+    /// Tags entities loaded in Level four loading state
+    #[derive(Component)]
+    struct OnLevelFourLoadingScreen;
+
+    /// Tags the primary 3D camera in Level Four
+    #[derive(Component)]
+    struct LevelFourCamera;
+
+    /// Tags entities loaded in the Level four running state
+    #[derive(Component)]
+    struct OnLevelFourScreen;
+
+    #[derive(Component)]
+    struct SelectedOption;
+
+    /// Tags structure entity in Level four
+    #[derive(Component)]
+    struct Lvl4StructureTag;
+
+    /// Tags asteroid entities
+    #[derive(Component)]
+    struct AsteroidTag;
+
+    #[derive(Component)]
+    enum AsteroidsButtonControls {
+        ResetScene,
+    }
+
+    const NORMAL_BUTTON: Color = Color::srgb(0.15, 0.15, 0.15);
+    const HOVERED_BUTTON: Color = Color::srgb(0.25, 0.25, 0.25);
+    const HOVERED_PRESSED_BUTTON: Color = Color::srgb(0.25, 0.65, 0.25);
+    const PRESSED_BUTTON: Color = Color::srgb(0.35, 0.75, 0.35);
+
+    /// Creates the main 3D camera
+    fn initialize_cam(
+        mut commands: Commands,
+    ) {
+        commands.spawn((
+            Camera3d::default(),
+            ExampleViewports::_PerspectiveMain,
+            Transform::from_xyz(0.0, 20.0, 80.0).looking_at(Vec3::ZERO, Vec3::Y),
+            LevelFourCamera,
+            OnLevelFourScreen,
+        ));
+    }
+
+    /// Continuously rotates the Camera around the origin
+    fn rotate_level_four_cam(
+        time: Res<Time>,
+        mut query: Query<&mut Transform, With<LevelFourCamera>>,
+    ) {
+        let radius = 80.0;
+        let speed = 0.2;
+        let vertical_offset = 20.0;
+
+        // Calculate the angle based on total elapsed time
+        let angle = time.elapsed_secs() * speed;
+
+        for mut transform in &mut query {
+            // Calculate new circular position on the XZ plane
+            let x = angle.cos() * radius;
+            let z = angle.sin() * radius;
+
+            // Apply new translation
+            transform.translation = Vec3::new(x, vertical_offset, z);
+
+            // Ensure the camera always points at the origin
+            transform.look_at(Vec3::ZERO, Vec3::Y);
+        }
+    }
+
+    /// Loads all entities in Level four
+    fn level_four_setup(
+        mut commands: Commands,
+        asset_server: Res<AssetServer>,
+        mut next_level_four_state: ResMut<NextState<LevelFourState>>,
+    ) {
+        commands.spawn((
+            PointLight {
+                shadows_enabled: true,
+                ..default()
+            },
+            Transform::from_xyz(4.0, 10.0, 4.0),
+            OnLevelFourScreen,
+        ));
+        commands.spawn((
+            SceneRoot(
+                asset_server.load(
+                    GltfAssetLabel::Scene(0)
+                    .from_asset("maps.glb"),
+                )
+            ),
+            OnLevelFourScreen,
+        )).observe(on_level_scene_spawn);
+
+        let mut rng = rand::rng();
+        for _ in 0..75 {
+            commands.spawn((
+                SceneRoot(
+                    asset_server.load(
+                        GltfAssetLabel::Scene(rng.random_range(0..2))
+                        .from_asset("structures.glb")
+                    )
+                ),
+                Transform::from_xyz(rng.random_range(-50.0..50.0), 0.0, rng.random_range(-50.0..50.0)),
+                OnLevelFourScreen,
+                Lvl4StructureTag,
+            )).observe(on_structure_scene_spawn);
+        }
+        next_level_four_state.set(LevelFourState::Loading);
+    }
+
+    /// Spawns all text to be loaded in Level four
+    fn level_four_text(
+        mut commands: Commands,
+        asset_server: Res<AssetServer>,
+    ) {
+        commands.spawn((
+            Text::new("Level Four: Asteroids"),
+            TextFont {
+                font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
+                font_size: 30.0,
+                ..default()
+            },
+            Node {
+                margin: UiRect {
+                    left: auto(),
+                    right: auto(),
+                    top: Val::Px(20.0),
+                    ..default()
+                },
+                ..default()
+            },
+            OnLevelFourScreen,
+        ));
+        commands.spawn((
+            Text::new("Large scale wrecker simulation with 'Asteroids'."),
+            TextFont {
+                font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
+                font_size: 20.0,
+                ..default()
+            },
+            Node {
+                position_type: bevy::ui::PositionType::Relative,
+                margin: UiRect {
+                    left: auto(),
+                    right: auto(),
+                    ..default()
+                },
+                ..default()
+            },
+            OnLevelFourScreen,
+        ));
+
+        let button_node = Node {
+            width: px(50),
+            height: px(30),
+            margin: UiRect::all(px(10)),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        };
+        let button_text_font = TextFont {
+            font_size: 20.0,
+            ..default()
+        };
+        let text_style = TextFont {
+            font: asset_server.load(r"fonts\FiraMono-Medium.ttf"),
+            ..Default::default()
+        };
+
+        commands.spawn((
+            Node { // container
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::FlexEnd,
+                align_items: AlignItems::Center,
+                height: vh(100),
+                width: percent(100.0),
+                ..default()
+            },
+            OnLevelFourScreen,
+            children![
+                (
+                    Text::new("Asteroids spawn every 0.2 seconds in a random X position above the map and accelerate into structures. Who will be lucky to survive"),
+                    TextFont {
+                        font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
+                        font_size: 12.0,
+                        ..default()
+                    },
+                ),
+                (
+                    Node { // box
+                        display: Display::Flex,
+                        flex_direction: FlexDirection::Column,
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        width: percent(100),
+                        height: percent(15),
+                        ..default()
+                    },
+                    BackgroundColor(color::palettes::css::CRIMSON.into()),
+                    children![ //row-buttons
+                        (
+                            Node {
+                                display: Display::Flex,
+                                flex_direction: FlexDirection::Row,
+                                column_gap: px(75),
+                                top: px(10),
+                                bottom: px(20),
+                                ..default()
+                            },
+                            children![
+                                (
+                                    Node { // reset-scene
+                                        display: Display::Flex,
+                                        flex_direction: FlexDirection::Column,
+                                        align_items: AlignItems::Center,
+                                        justify_content: JustifyContent::Center,
+                                        ..default()
+                                    },
+                                    children![
+                                        (
+                                            Text::new("Reset Scene"),
+                                            TextFont {
+                                                font: asset_server.load(r"fonts\FiraMono-Medium.ttf"),
+                                                font_size: 30.0,
+                                                ..default()
+                                            },
+                                        ),
+                                        (
+                                            Button,
+                                            button_node.clone(),
+                                            BackgroundColor(NORMAL_BUTTON),
+                                            AsteroidsButtonControls::ResetScene,
+                                            children![
+                                                (
+                                                    Text::new(" "),
+                                                    button_text_font.clone(),
+                                                )
+                                            ]
+                                        )
+                                    ]
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ]
+        ));
+    }
+
+    /// System used for adding visual interactions to buttons in UI
+    fn lvl_four_button_system(
+        mut interaction_query: Query<(&Interaction, &mut BackgroundColor, Option<&SelectedOption>), (Changed<Interaction>, With<Button>)>
+    ) {
+        for (interaction, mut background_color, selected) in &mut interaction_query {
+            *background_color = match (*interaction, selected) {
+                (Interaction::Pressed, _) | (Interaction::None, Some(_)) => PRESSED_BUTTON.into(),
+                (Interaction::Hovered, Some(_)) => HOVERED_PRESSED_BUTTON.into(),
+                (Interaction::Hovered, None) => HOVERED_BUTTON.into(),
+                (Interaction::None, None) => NORMAL_BUTTON.into(),
+            }
+        }
+    }
+
+    /// Manages controls to update the Asteroids scene based on button pressed
+    fn lvl_four_action_controls(
+        mut commands: Commands,
+        asset_server: Res<AssetServer>,
+        mut next_level_four_state: ResMut<NextState<LevelFourState>>,
+        interaction_query: Query<(&Interaction, &mut AsteroidsButtonControls), (Changed<Interaction>, With<Button>)>,
+        structure_query: Query<Entity, Or<(With<Lvl4StructureTag>, With<LevelFourCamera>)>>,
+    ) {
+        for (interaction, asteroid_controls_button_action) in &interaction_query {
+            if *interaction == Interaction::Pressed {
+                match asteroid_controls_button_action {
+                    AsteroidsButtonControls::ResetScene => {
+                        for entity in &structure_query {
+                            commands.entity(entity).despawn();
+                        }
+                        let mut rng = rand::rng();
+                        for _ in 0..75 {
+                            commands.spawn((
+                                SceneRoot(
+                                    asset_server.load(
+                                        GltfAssetLabel::Scene(rng.random_range(0..2))
+                                        .from_asset("structures.glb")
+                                    )
+                                ),
+                                Transform::from_xyz(rng.random_range(-50.0..50.0), 0.0, rng.random_range(-50.0..50.0)),
+                                OnLevelFourScreen,
+                                Lvl4StructureTag,
+                            )).observe(on_structure_scene_spawn);
+                        }
+                        next_level_four_state.set(LevelFourState::Loading);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Creates a timer preventing execution of level four until entities are done loading (4s)
+    fn setup_delay_timer(
+        mut commands: Commands,
+        asset_server: Res<AssetServer>,
+    ) {
+        commands.spawn((
+            Camera3d::default(),
+            OnLevelFourLoadingScreen,
+        ));
+        commands.spawn((
+            Text::new("Loading Level..."),
+            TextFont {
+                font: asset_server.load(r"fonts\FiraMono-Bold.ttf"),
+                font_size: 40.0,
+                ..default()
+            },
+            Node {
+                margin: UiRect::all(auto()),
+                ..default()
+            },
+            OnLevelFourLoadingScreen,
+        ));
+        let mut timer = Timer::new(Duration::from_secs(4), TimerMode::Once);
+        timer.tick(Duration::from_secs_f32(0.01));
+        commands.spawn((DelayTimer(timer), OnLevelFourLoadingScreen));
+    }
+
+    /// Continuously checks Delay Timer until it is done with execution then transitons Level four state
+    fn check_delay_timer(
+        time: Res<Time>,
+        mut commands: Commands,
+        mut query: Query<(Entity, &mut DelayTimer)>,
+        mut next_level_four_state: ResMut<NextState<LevelFourState>>,
+    ) {
+        for (entity, mut delay_timer) in &mut query {
+            delay_timer.0.tick(time.delta());
+
+            if delay_timer.0.is_finished() {
+                info!("Delay finished! Moving to Running state");
+                next_level_four_state.set(LevelFourState::Running);
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+
+    /// Spawns Asteroid entities into the scene
+    fn spawn_asteroids(
+        mut commands: Commands,
+        mut meshes: ResMut<Assets<Mesh>>,
+        mut materials: ResMut<Assets<StandardMaterial>>,
+    ) {
+        let mut rng = rand::rng();
+        let radius = rng.random_range(0.5..2.0);
+        let sphere = meshes.add(Sphere::new(0.5));
+        commands.spawn((
+            Mesh3d(sphere.clone()),
+            MeshMaterial3d(materials.add(Color::srgb(0.0, 0.0, 1.0))),
+            Transform::from_xyz(rng.random_range(-100.0..0.0), 40.0, rng.random_range(-50.0..50.0)),
+            Collider::sphere(0.5),
+            Mass(500.0),
+            ConstantForce::new(5000.0, 0.0, 0.0),
+            RigidBody::Dynamic,
+            AsteroidTag,
+            OnLevelFourScreen,
+            Lvl4StructureTag,
+        ));
+    }
+
+    /// Despawns all asteroid entities when they fall below the floor
+    fn despawn_asteroids(
+        mut commands: Commands,
+        query_asteroids: Query<(Entity, &GlobalTransform), Or<(With<Lvl4StructureTag>, With<StructureBlock>)>>,
+    ) {
+        for (entity, transform) in query_asteroids.iter() {
+            if transform.translation().y < -0.5 {
+                commands.entity(entity).despawn();
+                info!("Despawned Rigid Body");
+            }
+        }
+    }
+
+    /// Cleans the loading screen entities when transitioning to running state
+    fn cleanup_loading_screen(
+        mut commands: Commands,
+        query: Query<Entity, With<OnLevelFourLoadingScreen>>,
+    ) {
+        for entity in &query {
+            commands.entity(entity).despawn();
+        }
+    }
+
+    /// Cleans all entities when level 4 
+    fn level_four_cleanup(
+        mut commands: Commands,
+        query: Query<Entity, With<OnLevelFourScreen>>,
     ) {
         for entity in &query {
             commands.entity(entity).despawn();
